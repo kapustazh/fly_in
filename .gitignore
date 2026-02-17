@@ -1,0 +1,15 @@
+__pycache__/*
+*.pyc
+.venv/
+.pyc
+.vscode
+tests/
+.pytest_cache/
+.mlx/*
+.DS_Store
+.egg-info/
+uv.lock
+.mypy_cache
+.python-version
+.idea
+.mypy_cache
