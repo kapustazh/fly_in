@@ -2,11 +2,9 @@ import argparse
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Dict, Union, List, Tuple
+from typing import Optional, Dict, Union, List, Tuple, Any
 import re
 from pprint import pprint
-
-from packaging.metadata import parse_email
 
 
 class ZoneTypes(str, Enum):
@@ -26,21 +24,6 @@ class AllowedMetadataConnections(str, Enum):
     MAX_LINK_CAPACITY = "max_link_capacity"
 
 
-@dataclass
-class Metadata:
-    zone_type: str = ZoneTypes.NORMAL
-    color: Optional[str] = None
-    max_drones: int = 1
-
-
-@dataclass
-class Input:
-    nb_drones: int
-    start_hub: Tuple[str, Tuple[int, int], Metadata]
-    end_hub: Tuple[Tuple[int, int], Metadata]
-    hubs: Dict[str, Tuple[Tuple[int, int], Metadata]]
-
-
 class FileReaderError(Exception):
     def __init__(self, detail: str) -> None:
         message = f"Error occurred while reading: {detail}"
@@ -49,12 +32,13 @@ class FileReaderError(Exception):
 
 class InputParser:
 
-    def __init__(self):
-        self.zones: Dict[str, Union[Dict, int]] = defaultdict(dict)
-        self.connections: Optional[
-            List[Tuple[Tuple[int, int], Dict[str, str]]]
-        ] = None
-        self.parsed_lines: Optional[list[str]] = None
+    def __init__(self) -> None:
+        self.zones: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        self.raw_connections: List[
+            Tuple[Tuple[str, str], Optional[Dict[str, str]]]
+        ] = []
+        self.connections: Dict[str, Dict[str, Any]] = {}
+        self.parsed_lines: list[str] = []
         self.number_of_drones: int = 0
 
     @property
@@ -109,16 +93,13 @@ class InputParser:
                     self.number_of_drones = int(line.split(":")[1].strip())
                     if self.number_of_drones < 0:
                         raise ValueError(
-                            f"Number of drones can not be negative {self.number_of_drones}"
+                            "Number of drones can not be negative "
+                            + f"{self.number_of_drones}"
                         )
                 else:
                     match = re.match(pattern, line)
                     if match:
                         hub_type, name, x, y, metadata = match.groups()
-                        if int(x) < 0 or int(y) < 0:
-                            raise ValueError(
-                                f"Coordinates of the hubs must be positive {x, y}"
-                            )
                         self.zones[name].update(
                             {
                                 "hub_type": hub_type,
@@ -132,12 +113,45 @@ class InputParser:
                         match = re.match(pattern_connection, line)
                         if match:
                             hub_one, hub_two, metadata = match.groups()
+                            if hub_one == hub_two:
+                                raise ValueError(
+                                    f"Self-connection '{hub_one}-{hub_two}' "
+                                    + "is not allowed"
+                                )
+                            self.raw_connections.append(
+                                (
+                                    (hub_one, hub_two),
+                                    InputParser._parse_metadata(
+                                        metadata=metadata, connections=True
+                                    ),
+                                ),
+                            )
+
+            if self.raw_connections:
+                self.parse_connections()
 
         except ValueError as e:
             print("Error accused while parsing:", e)
             exit(1)
 
-    def parse_connections(self) -> None: ...
+    def parse_connections(self) -> None:
+        for (hub_one, hub_two), meta in self.raw_connections:
+            if hub_one not in self.connections:
+                self.connections[hub_one] = {
+                    "connections": set(),
+                    "metadata": {},
+                }
+            if hub_two not in self.connections:
+                self.connections[hub_two] = {
+                    "connections": set(),
+                    "metadata": {},
+                }
+
+            self.connections[hub_one]["connections"].add(hub_two)
+            self.connections[hub_one]["metadata"][hub_two] = meta
+
+            self.connections[hub_two]["connections"].add(hub_one)
+            self.connections[hub_two]["metadata"][hub_one] = meta
 
 
 if __name__ == "__main__":
@@ -146,5 +160,6 @@ if __name__ == "__main__":
     my_parser = InputParser()
     my_parser.parse_lines("test_map.txt")
     my_parser.parse_input()
-    pprint(my_parser.get_zones)
-    pprint(my_parser.number_of_drones)
+    # pprint(my_parser.get_zones)
+    # pprint(my_parser.number_of_drones)
+    # pprint(my_parser.connections)
