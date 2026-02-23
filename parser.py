@@ -6,7 +6,23 @@ from typing import Dict, Union, List, Tuple, Any
 import re
 from pprint import pprint
 import math
-from enum import StrEnum
+from enum import Enum
+
+# Python 3.11 added StrEnum, but mypy/stubs in some environments
+# don't know about it.  Define a small back‑compat shim so that
+# the rest of the code can subclass StrEnum and remain typed.
+# This avoids the `module "enum" has no attribute "StrEnum"`
+# and related subclass errors.
+
+
+class StrEnum(str, Enum):
+    """Simple ``str``/``Enum`` hybrid for versions without stdlib support.
+
+    The stdlib version inherits from ``str`` and ``Enum`` in the
+    opposite order, but for our use cases the behaviour is identical.
+    """
+
+    pass
 
 
 class ZoneTypes(StrEnum):
@@ -82,7 +98,7 @@ class InputParser:
         self.number_of_drones: int = 0
 
     @property
-    def get_zones(self) -> Dict[str, Union[Dict, int]]:
+    def get_zones(self) -> Dict[str, Union[Dict[str, Any], int]]:
         return dict(self.zones)
 
     @staticmethod
@@ -94,14 +110,14 @@ class InputParser:
 
         parsed = dict(metadata.split("=") for metadata in metadata.split())
 
-        parsed_clean = {}
-
         if is_connection:
             allowed_keys = {item.value for item in AllowedMetadataConnections}
             positive_int_keys = {"max_link_capacity"}
         else:
             allowed_keys = {item.value for item in AllowedMetadataHubs}
             positive_int_keys = {"max_drones"}
+
+        parsed_clean: dict[str, Any] = {}
 
         for key, value in parsed.items():
             if key not in allowed_keys:
@@ -136,7 +152,11 @@ class InputParser:
             raise FileReaderError("File not found")
 
     def parse_input(self) -> None:
-        pattern = r"(start_hub|end_hub|hub):\s+(\w+)\s+(-?\d+)\s+(-?\d+)(?:\s*\[([^\]]+)\])?"
+        pattern = (
+            r"(start_hub|end_hub|hub):\s+"
+            r"(\w+)\s+(-?\d+)\s+(-?\d+)"
+            r"(?:\s*\[([^\]]+)\])?"
+        )
         pattern_connection = r"connection:\s+(\w+)-(\w+)(?:\s*\[([^\]]+)\])?"
         try:
             seen_connections: set[frozenset[str]] = set()
@@ -170,11 +190,13 @@ class InputParser:
                             pair_key = frozenset({hub_one, hub_two})
                             if hub_one == hub_two:
                                 raise ValueError(
-                                    f"Self connection '{hub_one}-{hub_two}' is forbidden"
+                                    f"Self connection '{hub_one}-{hub_two}' "
+                                    + "is forbidden"
                                 )
                             if pair_key in seen_connections:
                                 raise ValueError(
-                                    f"Duplicate connection '{hub_one}-{hub_two}' found"
+                                    "Duplicate connection "
+                                    + f"'{hub_one}-{hub_two}' found"
                                 )
                             seen_connections.add(pair_key)
                             self.raw_connections.append(
@@ -214,7 +236,9 @@ class InputParser:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="fly-in",
-        description="Parses drone flight zone data and connections from a text file.",
+        description=(
+            "Parses drone flight zone data and connections from a text file."
+        ),
     )
     parser.add_argument(
         "filepath",
