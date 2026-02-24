@@ -1,10 +1,7 @@
-import argparse
-import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, Union, List, Tuple, Any
 import re
-from pprint import pprint
 import math
 from enum import Enum
 
@@ -231,32 +228,3 @@ class InputParser:
 
             self.connections[hub_two]["connections"].add(hub_one)
             self.connections[hub_two]["metadata"][hub_one] = meta
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        prog="fly-in",
-        description=(
-            "Parses drone flight zone data and connections from a text file."
-        ),
-    )
-    parser.add_argument(
-        "filepath",
-        type=str,
-        help="Path to the .txt file containing the zone and connection data.",
-    )
-    args = parser.parse_args()
-    my_parser = InputParser()
-    try:
-        my_parser.parse_lines(args.filepath)
-    except FileReaderError as e:
-        print(e)
-        sys.exit(1)
-    try:
-        my_parser.parse_input()
-    except ParsingError as e:
-        print(e)
-        sys.exit(1)
-    pprint(my_parser.get_zones)
-    pprint(my_parser.number_of_drones)
-    pprint(my_parser.connections)
