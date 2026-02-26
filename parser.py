@@ -13,12 +13,6 @@ from enum import Enum
 
 
 class StrEnum(str, Enum):
-    """Simple ``str``/``Enum`` hybrid for versions without stdlib support.
-
-    The stdlib version inherits from ``str`` and ``Enum`` in the
-    opposite order, but for our use cases the behaviour is identical.
-    """
-
     pass
 
 
@@ -95,7 +89,7 @@ class InputParser:
         self.number_of_drones: int = 0
 
     @property
-    def get_zones(self) -> Dict[str, Union[Dict[str, Any], int]]:
+    def get_zones(self) -> Dict[str, Dict[str, Any]]:
         return dict(self.zones)
 
     @staticmethod
