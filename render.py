@@ -1,4 +1,5 @@
 import os
+
 from parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
@@ -8,7 +9,21 @@ from collections.abc import Mapping
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame  # noqa: E402
 
+
 # suppress the pygame startup banner
+class RenderError(Exception):
+    def __init__(self, detail: str) -> None:
+        message = f"Error occurred while rendering: {detail}"
+        super().__init__(message)
+
+
+class MegaSuperUltraSingleton(type):
+    __instances: dict[Any, Any] = {}
+
+    def __call__(cls, *args: Dict[Any, Any], **kwargs: Dict[Any, Any]) -> Any:
+        if cls not in cls.__instances:
+            cls.__instances[cls] = super().__call__(*args, **kwargs)
+        return cls.__instances[cls]
 
 
 class Sprite:
@@ -44,13 +59,9 @@ class Renderer:
     WIDTH = 1920
     HEIGHT = 1080
 
-    def __init__(
-        self,
-        zones: Mapping[str, Dict[str, Any]],
-        connections: Mapping[str, Dict[str, Any]],
-    ) -> None:
-        self.zones = zones
-        self.connections = connections
+    def __init__(self) -> None:
+        self.zones: Mapping[str, Dict[str, Any]]
+        self.connections: Mapping[str, Dict[str, Any]]
         self.screen: pygame.Surface
         self.clock: pygame.time.Clock
         self.water_sprite: Sprite
@@ -86,8 +97,7 @@ class Renderer:
                 surface=pygame.image.load("flag_ua.png"), num_frames=5
             )
         except FileNotFoundError as e:
-            print(e)
-            sys.exit()
+            raise RenderError(str(e))
 
     def _prepare_sprites(self) -> None:
         self.water_sprite.prepare_frames(scale=2.0)
@@ -99,10 +109,10 @@ class Renderer:
         self.island_sprite.update_upscaled_surface(48, 48, 16, 16, 2)
         pygame.display.set_icon(self.icon_sprite.surface)
 
-    def _compute_offset(self) -> None:
+    def _compute_offset(self, zones: Mapping[str, Dict[str, Any]]) -> None:
         tile_w = self.island_sprite.width
-        x = [zone["coordinates"][0] * tile_w for zone in self.zones.values()]
-        y = [zone["coordinates"][1] * tile_w for zone in self.zones.values()]
+        x = [zone["coordinates"][0] * tile_w for zone in zones.values()]
+        y = [zone["coordinates"][1] * tile_w for zone in zones.values()]
         self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
         self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
 
@@ -133,7 +143,10 @@ class Renderer:
 
             connections_new = connections[name].get("connections", [])
             for neighbor in connections_new:
-
+                if neighbor not in zones:
+                    raise RenderError(
+                        f"Neighbor '{neighbor}' referenced in connections but not found in zones"
+                    )
                 if zones[neighbor].get("metadata", {}).zone == "blocked":
                     continue
 
@@ -213,10 +226,10 @@ class Renderer:
         self._init_pygame()
         self._set_sprites()
         self._prepare_sprites()
-        self._compute_offset()
-        zones = self.zones
-        connections = self.connections
+        zones = InformationManager().zones
+        connections = InformationManager().connections
 
+        self._compute_offset(zones=zones)
         try:
             while self.running:
                 for event in pygame.event.get():
@@ -231,14 +244,19 @@ class Renderer:
                 self._render_zones(zones)
                 pygame.display.flip()
                 self.clock.tick(60)
+        except RenderError as e:
+            print(f"Render error: {e}")
+            sys.exit(1)
         except KeyboardInterrupt:
             print("Exiting...")
         finally:
             pygame.quit()
 
 
-class InformationManager:
+class InformationManager(metaclass=MegaSuperUltraSingleton):
     def __init__(self):
+        if hasattr(self, "__initialized"):
+            return
         self._zones: Mapping[str, Dict[str, Any]] = {}
         self._connections: Mapping[str, Dict[str, Any]] = {}
 
@@ -263,7 +281,7 @@ class InformationManager:
         return self._zones
 
     @zones.setter
-    def set_zones(self, zones: Dict[str, Dict[str, Any]]) -> None:
+    def zones(self, zones: Dict[str, Dict[str, Any]]) -> None:
         self._zones = zones
 
     @property
@@ -271,7 +289,7 @@ class InformationManager:
         return self._connections
 
     @connections.setter
-    def set_connections(self, connections: Dict[str, Dict[str, Any]]) -> None:
+    def connections(self, connections: Dict[str, Dict[str, Any]]) -> None:
         self._connections = connections
 
     def parse_input(self) -> None:
@@ -291,7 +309,7 @@ class InformationManager:
 
     def run(self) -> None:
         self.parse_input()
-        Renderer(self._zones, self._connections).run()
+        Renderer().run()
 
 
 if __name__ == "__main__":
