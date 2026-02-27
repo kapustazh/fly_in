@@ -11,15 +11,6 @@ import pygame  # noqa: E402
 # suppress the pygame startup banner
 
 
-class Singleton:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(Singleton, cls).__new__(cls)
-        return cls._instance
-
-
 class Sprite:
     def __init__(self, surface: pygame.Surface, num_frames: int = 0) -> None:
         self.surface = surface
@@ -34,11 +25,10 @@ class Sprite:
         tile = self.surface.subsurface(pygame.Rect(x, y, w, h))
         new_size = (w * factor, h * factor)
         self.surface = pygame.transform.scale(tile, new_size)
+        self.width = self.surface.get_width()
+        self.height = self.surface.get_height()
 
-    def prepare_frames(
-        self,
-        scale: float,
-    ) -> None:
+    def prepare_frames(self, scale: float) -> None:
         width = self.width // self.num_frames
         height = self.height
         for i in range(self.num_frames):
@@ -50,18 +40,24 @@ class Sprite:
             self.frames.append(frame)
 
 
-class Renderer(Singleton):
+class Renderer:
     WIDTH = 1920
     HEIGHT = 1080
 
-    def __init__(self):
+    def __init__(
+        self,
+        zones: Mapping[str, Dict[str, Any]],
+        connections: Mapping[str, Dict[str, Any]],
+    ) -> None:
+        self.zones = zones
+        self.connections = connections
         self.screen: pygame.Surface
         self.clock: pygame.time.Clock
         self.water_sprite: Sprite
         self.icon_sprite: Sprite
         self.island_sprite: Sprite
         self.obstacle_sprite: Sprite
-        self.campfire_sprite: Sprite
+        self.russia_flag_sprite: Sprite
         self.ua_flag_sprite: Sprite
         self.running = True
 
@@ -83,30 +79,40 @@ class Renderer(Singleton):
             self.obstacle_sprite = Sprite(
                 surface=pygame.image.load("obstacle.png")
             )
-            self.campfire_sprite = Sprite(
-                surface=pygame.image.load("campfire.png"), num_frames=6
+            self.russia_flag_sprite = Sprite(
+                surface=pygame.image.load("flag_russia.png"), num_frames=5
             )
             self.ua_flag_sprite = Sprite(
-                surface=pygame.image.load("flag_ua.png"), num_frames=6
+                surface=pygame.image.load("flag_ua.png"), num_frames=5
             )
         except FileNotFoundError as e:
             print(e)
             sys.exit()
 
     def _prepare_sprites(self) -> None:
-        self.water_sprite.update_upscaled_surface(48, 48, 16, 16, 2)
         self.water_sprite.prepare_frames(scale=2.0)
-        self.campfire_sprite.prepare_frames(scale=1.2)
+        self.russia_flag_sprite.prepare_frames(scale=1.2)
         self.ua_flag_sprite.prepare_frames(scale=1.2)
-        pygame.transform.scale(self.obstacle_sprite.surface, (32, 32))
+        self.obstacle_sprite.surface = pygame.transform.scale(
+            self.obstacle_sprite.surface, (20, 20)
+        )
+        self.island_sprite.update_upscaled_surface(48, 48, 16, 16, 2)
         pygame.display.set_icon(self.icon_sprite.surface)
 
-    def _render_water(self, water_tile: pygame.Surface) -> None:
-        for x in range(0, self.water_sprite.width, self.water_sprite.width):
-            for y in range(
-                0, self.water_sprite.height, self.water_sprite.height
-            ):
-                self.screen.blit(water_tile, (x, y))
+    def _compute_offset(self) -> None:
+        tile_w = self.island_sprite.width
+        x = [zone["coordinates"][0] * tile_w for zone in self.zones.values()]
+        y = [zone["coordinates"][1] * tile_w for zone in self.zones.values()]
+        self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
+        self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
+
+    def _render_water(self) -> None:
+        current_water = self._get_current_sprite(self.water_sprite)
+        tile_w = current_water.get_width()
+        tile_h = current_water.get_height()
+        for x in range(0, self.WIDTH, tile_w):
+            for y in range(0, self.HEIGHT, tile_h):
+                self.screen.blit(current_water, (x, y))
 
     def _render_bridges(
         self,
@@ -115,10 +121,12 @@ class Renderer(Singleton):
     ) -> None:
         drawn_bridges: set[tuple[str, str]] = set()
         tile_w = self.island_sprite.width
+        half_w = self.island_sprite.width // 2
+        half_h = self.island_sprite.height // 2
         for name, zone in zones.items():
             coords = zone["coordinates"]
-            x = coords[0] * tile_w
-            y = coords[1] * tile_w
+            x = coords[0]
+            y = coords[1]
 
             if zone.get("metadata", {}).zone == "blocked":
                 continue
@@ -134,24 +142,65 @@ class Renderer(Singleton):
 
                 if connection_pair not in drawn_bridges:
                     nx, ny = zones[neighbor]["coordinates"]
-                    n_draw_x = nx * tile_w
-                    n_draw_y = ny * tile_w
 
                     start_pt = (
-                        x + self.WIDTH // 2 + tile_w // 2,
-                        y + self.HEIGHT // 2 + tile_w // 2,
+                        x * tile_w + self.offset_x + half_w,
+                        y * tile_w + self.offset_y + half_h,
                     )
                     end_pt = (
-                        n_draw_x + self.WIDTH // 2 + tile_w // 2,
-                        n_draw_y + self.HEIGHT // 2 + tile_w // 2,
+                        nx * tile_w + self.offset_x + half_w,
+                        ny * tile_w + self.offset_y + half_h,
                     )
 
-                    # Draw a solid, clean line
                     pygame.draw.line(
                         self.screen, (194, 178, 128), start_pt, end_pt, 4
                     )
 
                     drawn_bridges.add(connection_pair)
+
+    def _render_zones(
+        self,
+        zones: Mapping[str, Dict[str, Any]],
+    ) -> None:
+        for zone in zones.values():
+            coords = zone["coordinates"]
+            tile_w = self.island_sprite.width
+            x = coords[0] * tile_w
+            y = coords[1] * tile_w
+
+            is_blocked = zone.get("metadata", {}).zone == "blocked"
+
+            if is_blocked:
+                self.screen.blit(
+                    self.obstacle_sprite.surface,
+                    (x + self.offset_x, y + self.offset_y - 4),
+                )
+            if not is_blocked:
+                self.screen.blit(
+                    self.island_sprite.surface,
+                    (x + self.offset_x, y + self.offset_y),
+                )
+        for zone in zones.values():
+            current_russian_flag = self._get_current_sprite(
+                self.russia_flag_sprite
+            )
+            current_ukrainian_flag = self._get_current_sprite(
+                self.ua_flag_sprite
+            )
+            coords = zone["coordinates"]
+            tile_w = self.island_sprite.width
+            x = coords[0] * tile_w
+            y = coords[1] * tile_w
+
+            if zone.get("hub_type") == "end_hub":
+                fire_x = x + self.offset_x + 5
+                fire_y = y + self.offset_y - 50
+                self.screen.blit(current_russian_flag, (fire_x, fire_y))
+            if zone.get("hub_type") == "start_hub":
+                flag_x = x + self.offset_x + 5
+                flag_y = y + self.offset_y - 50
+
+                self.screen.blit(current_ukrainian_flag, (flag_x, flag_y))
 
     def _get_current_sprite(
         self, sprite: Sprite, animation: int = 150
@@ -164,8 +213,9 @@ class Renderer(Singleton):
         self._init_pygame()
         self._set_sprites()
         self._prepare_sprites()
-        zones = InformationManager().zones
-        connections = InformationManager().connections
+        self._compute_offset()
+        zones = self.zones
+        connections = self.connections
 
         try:
             while self.running:
@@ -176,41 +226,9 @@ class Renderer(Singleton):
                         if event.key == pygame.K_q:
                             self.running = False
                 self.current_time = pygame.time.get_ticks()
-                current_fire = self._get_current_sprite(self.campfire_sprite)
-                current_flag = self._get_current_sprite(self.ua_flag_sprite)
-                current_water = self._get_current_sprite(self.water_sprite)
-                self._render_water(current_water)
+                self._render_water()
                 self._render_bridges(zones, connections)
-
-                for zone in zones.values():
-                    coords = zone["coordinates"]
-                    tile_w = self.island_sprite.width
-                    x = coords[0] * tile_w
-                    y = coords[1] * tile_w
-
-                    is_blocked = zone.get("metadata", {}).zone == "blocked"
-
-                    if is_blocked:
-                        self.screen.blit(
-                            self.obstacle_sprite.surface,
-                            (x + self.WIDTH // 2, y + self.HEIGHT // 2 - 4),
-                        )
-                    else:
-                        self.screen.blit(
-                            self.island_sprite.surface,
-                            (x + self.WIDTH // 2, y + self.HEIGHT // 2),
-                        )
-
-                    if zone.get("hub_type") == "end_hub":
-                        fire_x = x + self.WIDTH // 2 - 3
-                        fire_y = y + self.HEIGHT // 2 - 15
-                        # Draw the current frame of the animation
-                        self.screen.blit(current_fire, (fire_x, fire_y))
-                    if zone.get("hub_type") == "start_hub":
-                        flag_x = x + self.WIDTH // 2 + 5
-                        flag_y = y + self.HEIGHT // 2 - 50
-
-                        self.screen.blit(current_flag, (flag_x, flag_y))
+                self._render_zones(zones)
                 pygame.display.flip()
                 self.clock.tick(60)
         except KeyboardInterrupt:
@@ -219,7 +237,7 @@ class Renderer(Singleton):
             pygame.quit()
 
 
-class InformationManager(Singleton):
+class InformationManager:
     def __init__(self):
         self._zones: Mapping[str, Dict[str, Any]] = {}
         self._connections: Mapping[str, Dict[str, Any]] = {}
@@ -273,7 +291,7 @@ class InformationManager(Singleton):
 
     def run(self) -> None:
         self.parse_input()
-        Renderer().run()
+        Renderer(self._zones, self._connections).run()
 
 
 if __name__ == "__main__":

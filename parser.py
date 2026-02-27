@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Union, List, Tuple, Any
+from typing import Dict, List, Tuple, Any
 import re
 import math
 from enum import Enum
