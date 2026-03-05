@@ -82,8 +82,8 @@ class ParsingError(Exception):
 class InputParser:
 
     def __init__(self) -> None:
-        self.zones: Dict[str, Dict[str, Any]] = defaultdict(dict)
-        self.raw_connections: List[Tuple[Tuple[str, str], MetadataType]] = []
+        self.zones: dict[str, dict[str, Any]] = defaultdict(dict)
+        self.raw_connections: List[Tuple[tuple[str, str], MetadataType]] = []
         self.connections: Dict[str, Dict[str, Any]] = {}
         self.parsed_lines: list[str] = []
         self.number_of_drones: int = 0
