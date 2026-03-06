@@ -5,12 +5,6 @@ import re
 import math
 from enum import Enum
 
-# Python 3.11 added StrEnum, but mypy/stubs in some environments
-# don't know about it.  Define a small back‑compat shim so that
-# the rest of the code can subclass StrEnum and remain typed.
-# This avoids the `module "enum" has no attribute "StrEnum"`
-# and related subclass errors.
-
 
 class StrEnum(str, Enum):
     pass

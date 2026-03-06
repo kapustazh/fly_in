@@ -7,7 +7,7 @@ from typing import Dict, Any
 from collections.abc import Mapping
 from enum import Enum
 from sprites import Sprite, AnimatedSprite, Font
-from drone import Drone
+from drone import DroneSprite
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame  # noqa: E402
@@ -34,13 +34,17 @@ class MegaSuperUltraSingleton(type):
         return cls.__instances[cls]
 
 
-class Renderer:
+class Renderer(metaclass=MegaSuperUltraSingleton):
     WIDTH = 1920
     HEIGHT = 1080
 
-    def __init__(self) -> None:
-        self.zones: Mapping[str, Dict[str, Any]]
-        self.connections: Mapping[str, Dict[str, Any]]
+    def __init__(
+        self,
+        zones: Mapping[str, Dict[str, Any]],
+        connections: Mapping[str, Dict[str, Any]],
+    ) -> None:
+        self.zones = zones
+        self.connections = connections
         self.screen: pygame.Surface
         self.clock: pygame.time.Clock
         self.water: AnimatedSprite
@@ -106,7 +110,7 @@ class Renderer:
                     "assets/sprites/wood_tile.png"
                 ).convert_alpha(),
             )
-            self.drone = Drone(
+            self.drone = DroneSprite(
                 surface=pygame.image.load(
                     "assets/sprites/drone_sprite.png"
                 ).convert_alpha(),
@@ -116,20 +120,20 @@ class Renderer:
 
     def _prepare_sprites(self) -> None:
         self.water.prepare_frames(scale=2.0)
-        self.russia_flag.prepare_frames(scale=1.2)
-        self.ua_flag.prepare_frames(scale=1.2)
-        self.obstacle.surface = pygame.transform.scale(
-            self.obstacle.surface, (20, 20)
+        self.russia_flag.prepare_frames(scale=1.5)
+        self.ua_flag.prepare_frames(scale=1.5)
+        self.obstacle.surface = pygame.transform.scale_by(
+            self.obstacle.surface, factor=1.5
         )
-        self.island.update_upscaled_surface(48, 48, 16, 16, 2)
+        self.island.update_upscaled_surface(48, 48, 16, 16, 2.5)
         self.wood_font.prepare_frames()
-        self.drone.prepare_frames()
+        self.drone.prepare_frames(scale=0.1)
         pygame.display.set_icon(self.icon.surface)
 
-    def _compute_offset(self, zones: Mapping[str, Dict[str, Any]]) -> None:
+    def _compute_offset(self) -> None:
         tile_w = self.island.width
-        x = [zone["coordinates"][0] * tile_w for zone in zones.values()]
-        y = [zone["coordinates"][1] * tile_w for zone in zones.values()]
+        x = [zone["coordinates"][0] * tile_w for zone in self.zones.values()]
+        y = [zone["coordinates"][1] * tile_w for zone in self.zones.values()]
         self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
         self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
 
@@ -143,77 +147,84 @@ class Renderer:
 
     def _render_bridges(
         self,
-        zones: Mapping[str, Dict[str, Any]],
-        connections: Mapping[str, Dict[str, Any]],
     ) -> None:
-        drawn_bridges: set[tuple[str, str]] = set()
+        drawn: set[frozenset[str]] = set()
         tile_w = self.island.width
         half_w = self.island.width // 2
         half_h = self.island.height // 2
-        for name, zone in zones.items():
-            coords = zone["coordinates"]
-            x = coords[0]
-            y = coords[1]
+        for name, zone in self.zones.items():
             if zone.get("metadata", {}).zone == "blocked":
                 continue
-            connections_new = connections[name].get("connections", [])
-            for neighbor in connections_new:
-                if neighbor not in zones:
+
+            x, y = zone["coordinates"]
+            for neighbor in self.connections[name].get("connections", {}):
+                if neighbor not in self.zones:
                     raise RenderError(
                         f"Neighbor '{neighbor}' referenced in connections but"
                         + " not found in zones"
                     )
-                if zones[neighbor].get("metadata", {}).zone == "blocked":
+                if self.zones[neighbor].get("metadata", {}).zone == "blocked":
                     continue
-                connection_pair: tuple[str, str] = tuple(
-                    sorted([name, neighbor])
+                bridge = frozenset((name, neighbor))
+                if bridge in drawn:
+                    continue
+
+                nx, ny = self.zones[neighbor]["coordinates"]
+                start = (
+                    x * tile_w + self.offset_x + half_w,
+                    y * tile_w + self.offset_y + half_h,
                 )
-                if connection_pair not in drawn_bridges:
-                    nx, ny = zones[neighbor]["coordinates"]
-                    start_pt = (
-                        x * tile_w + self.offset_x + half_w,
-                        y * tile_w + self.offset_y + half_h,
-                    )
-                    end_pt = (
-                        nx * tile_w + self.offset_x + half_w,
-                        ny * tile_w + self.offset_y + half_h,
-                    )
-                    pygame.draw.line(
-                        self.screen, Color.SAND.value, start_pt, end_pt, 4
-                    )
-                    drawn_bridges.add(connection_pair)
+                end = (
+                    nx * tile_w + self.offset_x + half_w,
+                    ny * tile_w + self.offset_y + half_h,
+                )
+                pygame.draw.line(self.screen, Color.SAND.value, start, end, 4)
+                drawn.add(bridge)
 
     def _render_zones(
         self,
-        zones: Mapping[str, Dict[str, Any]],
     ) -> None:
         tile_w = self.island.width
-        current_russian_flag = self._get_current_sprite(self.russia_flag)
-        current_ukrainian_flag = self._get_current_sprite(self.ua_flag)
-        for zone in zones.values():
+        for zone in self.zones.values():
             coords = zone["coordinates"]
-            x = coords[0] * tile_w
-            y = coords[1] * tile_w
+            x, y = coords
             is_blocked = zone.get("metadata", {}).zone == "blocked"
             if is_blocked:
                 self.screen.blit(
                     self.obstacle.surface,
-                    (x + self.offset_x, y + self.offset_y - 4),
+                    (
+                        x * tile_w + self.offset_x,
+                        y * tile_w + self.offset_y - 4,
+                    ),
                 )
             else:
                 self.screen.blit(
                     self.island.surface,
-                    (x + self.offset_x, y + self.offset_y),
+                    (x * tile_w + self.offset_x, y * tile_w + self.offset_y),
+                )
+
+    def _render_flags(self) -> None:
+        tile_w = self.island.width
+        current_ua_flag = self._get_current_sprite(self.ua_flag)
+        curren_russian_flag = self._get_current_sprite(self.russia_flag)
+        for zone in self.zones.values():
+            coords = zone["coordinates"]
+            x, y = coords
+            if zone.get("hub_type") == "start_hub":
+                self.screen.blit(
+                    current_ua_flag,
+                    (
+                        x * tile_w + self.offset_x + 7,
+                        y * tile_w + self.offset_y - 65,
+                    ),
                 )
             if zone.get("hub_type") == "end_hub":
                 self.screen.blit(
-                    current_russian_flag,
-                    (x + self.offset_x + 5, y + self.offset_y - 50),
-                )
-            elif zone.get("hub_type") == "start_hub":
-                self.screen.blit(
-                    current_ukrainian_flag,
-                    (x + self.offset_x + 5, y + self.offset_y - 50),
+                    curren_russian_flag,
+                    (
+                        x * tile_w + self.offset_x + 7,
+                        y * tile_w + self.offset_y - 65,
+                    ),
                 )
 
     def _get_current_sprite(
@@ -229,28 +240,41 @@ class Renderer:
         x: int,
         y: int,
     ) -> None:
-        current_x = x
+        curren_position = x
 
         for char in text:
             if char in self.wood_font.frames:
                 char_surface = self.wood_font.frames[char]
 
-                self.screen.blit(char_surface, (current_x, y))
+                self.screen.blit(char_surface, (curren_position, y))
 
-                current_x += char_surface.get_width()
+                curren_position += char_surface.get_width() - 2
             elif char == " ":
                 space_width = self.wood_font.frames["A"].get_width()
-                current_x += space_width
+                curren_position += space_width
             else:
                 raise RenderError(f"No character in the font :{char}")
+
+    def _render_drones(
+        self,
+    ) -> None:
+        tile_w = self.island.width
+        for zone in self.zones.values():
+            coords = zone["coordinates"]
+            x = coords[0] * tile_w
+            y = coords[1] * tile_w
+            if zone.get("hub_type") == "start_hub":
+                drone = self.drone.get_drone_frame(self.current_time)
+                self.screen.blit(
+                    drone,
+                    (x + self.offset_x, y + self.offset_y - 40),
+                )
 
     def run(self) -> None:
         self._init_pygame()
         self._set_sprites()
         self._prepare_sprites()
-        zones = InformationManager().zones
-        connections = InformationManager().connections
-        self._compute_offset(zones=zones)
+        self._compute_offset()
         try:
             while self.running:
                 for event in pygame.event.get():
@@ -261,12 +285,13 @@ class Renderer:
                             self.running = False
                 self.current_time = pygame.time.get_ticks()
                 self._render_water()
-                self._render_bridges(zones, connections)
-                self._render_zones(zones)
+                self._render_bridges()
+                self._render_zones()
+                self._render_flags()
+                self._render_drones()
                 self._render_text(
                     "Map Legend", self.WIDTH // 2 - 800, self.HEIGHT // 4
                 )
-                self.screen.blit(self.wood_tile.surface)
                 pygame.display.flip()
                 self.clock.tick(60)
         except RenderError as e:
@@ -278,7 +303,7 @@ class Renderer:
             pygame.quit()
 
 
-class InformationManager(metaclass=MegaSuperUltraSingleton):
+class InformationManager:
     def __init__(self) -> None:
         if hasattr(self, "__initialized"):
             return
@@ -332,7 +357,7 @@ class InformationManager(metaclass=MegaSuperUltraSingleton):
 
     def run(self) -> None:
         self.parse_input()
-        Renderer().run()
+        Renderer(zones=self._zones, connections=self._connections).run()
 
 
 if __name__ == "__main__":
