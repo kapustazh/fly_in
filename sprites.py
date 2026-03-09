@@ -1,12 +1,13 @@
 import os
+from pygame.surface import Surface
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame  # noqa: E402
 
 
 class Sprite:
-    def __init__(self, surface: pygame.Surface) -> None:
-        self.surface = surface
+    def __init__(self, surface: Surface) -> None:
+        self.surface: Surface = surface
         self.width: int = surface.get_width()
         self.height: int = surface.get_height()
 
@@ -21,24 +22,28 @@ class Sprite:
 
 
 class AnimatedSprite(Sprite):
-    def __init__(self, surface: pygame.Surface, num_frames: int) -> None:
+    def __init__(self, surface: Surface, num_frames: int) -> None:
         super().__init__(surface)
         self.num_frames: int = num_frames
-        self.frames: list[pygame.Surface] = []
+        self.frames: list[Surface] = []
 
     def prepare_frames(self, scale: float = 1.0) -> None:
         width = self.width // self.num_frames
         for i in range(self.num_frames):
             rect = pygame.Rect(i * width, 0, width, self.height)
             frame = self.surface.subsurface(rect)
-            frame = pygame.transform.scale_by(frame, scale)
+            new_size = (
+                int(frame.get_width() * scale),
+                int(frame.get_height() * scale),
+            )
+            frame = pygame.transform.scale(frame, new_size)
             self.frames.append(frame)
 
 
 class Font(Sprite):
-    def __init__(self, surface: pygame.Surface):
+    def __init__(self, surface: Surface):
         super().__init__(surface)
-        self.frames: dict[str, pygame.Surface] = {}
+        self.frames: dict[str, Surface] = {}
 
     def prepare_frames(self, scale: float = 1) -> None:
         char_sequence = (
@@ -68,6 +73,10 @@ class Font(Sprite):
                     cell_height,
                 )
                 frame = self.surface.subsurface(rect)
-                frame = pygame.transform.scale_by(frame, scale)
+                new_size = (
+                    int(frame.get_width() * scale),
+                    int(frame.get_height() * scale),
+                )
+                frame = pygame.transform.scale(frame, new_size)
                 self.frames[char] = frame
                 char_index += 1
