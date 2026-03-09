@@ -1,7 +1,7 @@
 import os
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
-import pygame
+import pygame  # noqa: E402
 
 
 class Sprite:
@@ -11,7 +11,7 @@ class Sprite:
         self.height: int = surface.get_height()
 
     def update_upscaled_surface(
-        self, x: int, y: int, w: int, h: int, factor: int
+        self, x: int, y: int, w: int, h: int, factor: float
     ) -> None:
         tile = self.surface.subsurface(pygame.Rect(x, y, w, h))
         new_size = (w * factor, h * factor)

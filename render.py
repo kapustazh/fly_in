@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from enum import Enum
 from sprites import Sprite, AnimatedSprite, Font
 from drone import DroneSprite
+from assets import AssetManager, AssetError
+
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame  # noqa: E402
@@ -25,16 +27,7 @@ class RenderError(Exception):
         super().__init__(message)
 
 
-class MegaSuperUltraSingleton(type):
-    __instances: dict[Any, Any] = {}
-
-    def __call__(cls, *args: Dict[Any, Any], **kwargs: Dict[Any, Any]) -> Any:
-        if cls not in cls.__instances:
-            cls.__instances[cls] = super().__call__(*args, **kwargs)
-        return cls.__instances[cls]
-
-
-class Renderer(metaclass=MegaSuperUltraSingleton):
+class Renderer:
     WIDTH = 1920
     HEIGHT = 1080
 
@@ -42,22 +35,17 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
         self,
         zones: Mapping[str, Dict[str, Any]],
         connections: Mapping[str, Dict[str, Any]],
+        assets: AssetManager,
     ) -> None:
         self.zones = zones
         self.connections = connections
+        self.assets = assets
         self.screen: pygame.Surface
         self.clock: pygame.time.Clock
-        self.water: AnimatedSprite
-        self.icon: Sprite
-        self.island: Sprite
-        self.obstacle: Sprite
-        self.russia_flag: AnimatedSprite
-        self.ua_flag: AnimatedSprite
-        self.drone: AnimatedSprite
-        self.wood_font: Font
-        self.wood_tile: Sprite
         self.running = True
         self.current_time: int
+        self.offset_x: int
+        self.offset_y: int
 
     def _init_pygame(self) -> None:
         pygame.init()
@@ -65,80 +53,16 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
         pygame.display.set_caption("Fly-in")
         self.clock = pygame.time.Clock()
 
-    def _set_sprites(self) -> None:
-        try:
-            self.water = AnimatedSprite(
-                surface=pygame.image.load(
-                    "assets/sprites/water.png"
-                ).convert_alpha(),
-                num_frames=4,
-            )
-            self.icon = Sprite(
-                surface=pygame.image.load(
-                    "assets/sprites/icon.jpg"
-                ).convert_alpha()
-            )
-            self.island = Sprite(
-                surface=pygame.image.load(
-                    "assets/sprites/grass.png"
-                ).convert_alpha(),
-            )
-            self.obstacle = Sprite(
-                surface=pygame.image.load(
-                    "assets/sprites/obstacle.png"
-                ).convert_alpha()
-            )
-            self.russia_flag = AnimatedSprite(
-                surface=pygame.image.load(
-                    "assets/sprites/flag_russia.png"
-                ).convert_alpha(),
-                num_frames=5,
-            )
-            self.ua_flag = AnimatedSprite(
-                surface=pygame.image.load(
-                    "assets/sprites/flag_ua.png"
-                ).convert_alpha(),
-                num_frames=5,
-            )
-            self.wood_font = Font(
-                surface=pygame.image.load(
-                    "assets/fonts/WoodFont.png"
-                ).convert_alpha(),
-            )
-            self.wood_tile = Font(
-                surface=pygame.image.load(
-                    "assets/sprites/wood_tile.png"
-                ).convert_alpha(),
-            )
-            self.drone = DroneSprite(
-                surface=pygame.image.load(
-                    "assets/sprites/drone_sprite.png"
-                ).convert_alpha(),
-            )
-        except FileNotFoundError as e:
-            raise RenderError(str(e))
-
-    def _prepare_sprites(self) -> None:
-        self.water.prepare_frames(scale=2.0)
-        self.russia_flag.prepare_frames(scale=1.5)
-        self.ua_flag.prepare_frames(scale=1.5)
-        self.obstacle.surface = pygame.transform.scale_by(
-            self.obstacle.surface, factor=1.5
-        )
-        self.island.update_upscaled_surface(48, 48, 16, 16, 2.5)
-        self.wood_font.prepare_frames()
-        self.drone.prepare_frames(scale=0.1)
-        pygame.display.set_icon(self.icon.surface)
-
     def _compute_offset(self) -> None:
-        tile_w = self.island.width
+        tile_w = self.assets.island.width
         x = [zone["coordinates"][0] * tile_w for zone in self.zones.values()]
         y = [zone["coordinates"][1] * tile_w for zone in self.zones.values()]
         self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
         self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
 
     def _render_water(self) -> None:
-        current_water = self._get_current_sprite(self.water)
+        assets = self.assets
+        current_water = self._get_current_sprite(assets.water)
         tile_w = current_water.get_width()
         tile_h = current_water.get_height()
         for x in range(0, self.WIDTH, tile_w):
@@ -148,10 +72,11 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
     def _render_bridges(
         self,
     ) -> None:
+        assets = self.assets
         drawn: set[frozenset[str]] = set()
-        tile_w = self.island.width
-        half_w = self.island.width // 2
-        half_h = self.island.height // 2
+        tile_w = assets.island.width
+        half_w = assets.island.width // 2
+        half_h = assets.island.height // 2
         for name, zone in self.zones.items():
             if zone.get("metadata", {}).zone == "blocked":
                 continue
@@ -184,14 +109,15 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
     def _render_zones(
         self,
     ) -> None:
-        tile_w = self.island.width
+        assets = self.assets
+        tile_w = assets.island.width
         for zone in self.zones.values():
             coords = zone["coordinates"]
             x, y = coords
             is_blocked = zone.get("metadata", {}).zone == "blocked"
             if is_blocked:
                 self.screen.blit(
-                    self.obstacle.surface,
+                    assets.obstacle.surface,
                     (
                         x * tile_w + self.offset_x,
                         y * tile_w + self.offset_y - 4,
@@ -199,14 +125,15 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
                 )
             else:
                 self.screen.blit(
-                    self.island.surface,
+                    assets.island.surface,
                     (x * tile_w + self.offset_x, y * tile_w + self.offset_y),
                 )
 
     def _render_flags(self) -> None:
-        tile_w = self.island.width
-        current_ua_flag = self._get_current_sprite(self.ua_flag)
-        curren_russian_flag = self._get_current_sprite(self.russia_flag)
+        assets = self.assets
+        tile_w = assets.island.width
+        current_ua_flag = self._get_current_sprite(assets.ua_flag)
+        current_russian_flag = self._get_current_sprite(assets.russia_flag)
         for zone in self.zones.values():
             coords = zone["coordinates"]
             x, y = coords
@@ -220,7 +147,7 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
                 )
             if zone.get("hub_type") == "end_hub":
                 self.screen.blit(
-                    curren_russian_flag,
+                    current_russian_flag,
                     (
                         x * tile_w + self.offset_x + 7,
                         y * tile_w + self.offset_y - 65,
@@ -240,17 +167,18 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
         x: int,
         y: int,
     ) -> None:
+        assets = self.assets
         curren_position = x
 
         for char in text:
-            if char in self.wood_font.frames:
-                char_surface = self.wood_font.frames[char]
+            if char in assets.wood_font.frames:
+                char_surface = assets.wood_font.frames[char]
 
                 self.screen.blit(char_surface, (curren_position, y))
 
                 curren_position += char_surface.get_width() - 2
             elif char == " ":
-                space_width = self.wood_font.frames["A"].get_width()
+                space_width = assets.wood_font.frames["A"].get_width()
                 curren_position += space_width
             else:
                 raise RenderError(f"No character in the font :{char}")
@@ -258,13 +186,14 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
     def _render_drones(
         self,
     ) -> None:
-        tile_w = self.island.width
+        assets = self.assets
+        tile_w = assets.island.width
         for zone in self.zones.values():
             coords = zone["coordinates"]
             x = coords[0] * tile_w
             y = coords[1] * tile_w
             if zone.get("hub_type") == "start_hub":
-                drone = self.drone.get_drone_frame(self.current_time)
+                drone = assets.drone_sprite.get_drone_frame(self.current_time)
                 self.screen.blit(
                     drone,
                     (x + self.offset_x, y + self.offset_y - 40),
@@ -272,8 +201,11 @@ class Renderer(metaclass=MegaSuperUltraSingleton):
 
     def run(self) -> None:
         self._init_pygame()
-        self._set_sprites()
-        self._prepare_sprites()
+        try:
+            self.assets.load()  # load after pygame.init
+        except AssetError as e:
+            print(e)
+            sys.exit(1)
         self._compute_offset()
         try:
             while self.running:
@@ -326,22 +258,6 @@ class InformationManager:
         args = parser.parse_args()
         return args.filepath
 
-    @property
-    def zones(self) -> Mapping[str, Dict[str, Any]]:
-        return self._zones
-
-    @zones.setter
-    def zones(self, zones: Dict[str, Dict[str, Any]]) -> None:
-        self._zones = zones
-
-    @property
-    def connections(self) -> Mapping[str, Dict[str, Any]]:
-        return self._connections
-
-    @connections.setter
-    def connections(self, connections: Dict[str, Dict[str, Any]]) -> None:
-        self._connections = connections
-
     def parse_input(self) -> None:
         try:
             my_parser = InputParser()
@@ -357,9 +273,12 @@ class InformationManager:
 
     def run(self) -> None:
         self.parse_input()
-        Renderer(zones=self._zones, connections=self._connections).run()
+        # build asset manager once and inject
+        assets = AssetManager()
+        Renderer(
+            zones=self._zones, connections=self._connections, assets=assets
+        ).run()
 
 
 if __name__ == "__main__":
-    info_manager = InformationManager()
-    info_manager.run()
+    info_manager = InformationManager().run()
