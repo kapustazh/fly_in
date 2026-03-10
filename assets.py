@@ -70,7 +70,7 @@ class AssetManager:
             )
             self.wood_tile = Font(
                 surface=pygame.image.load(
-                    asset_path("sprites", "wood_tile.png")
+                    asset_path("sprites", "oak_plank.png")
                 ).convert_alpha(),
             )
             self.drone_sprite = DroneSprite(
@@ -87,13 +87,9 @@ class AssetManager:
         self.water.prepare_frames(scale=2.0)
         self.russia_flag.prepare_frames(scale=1.5)
         self.ua_flag.prepare_frames(scale=1.5)
-        size = self.obstacle.surface
-        rescaled = (
-            size.get_width() * 1.5,
-            size.get_height() * 1.5,
-        )
-        self.obstacle.surface = pygame.transform.scale(size, rescaled)
-        self.island.update_upscaled_surface(48, 48, 16, 16, factor=2.5)
+        self.obstacle.upscale(scale=1.5)
+        self.island.get_upscaled_from_mask(48, 48, 16, 16, factor=2.5)
         self.wood_font.prepare_frames()
         self.drone_sprite.prepare_frames(scale=0.1)
+        self.wood_tile.upscale(scale=0.3)
         pygame.display.set_icon(self.icon.surface)

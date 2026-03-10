@@ -10,12 +10,19 @@ class Sprite:
         self.width: int = surface.get_width()
         self.height: int = surface.get_height()
 
-    def update_upscaled_surface(
+    def get_upscaled_from_mask(
         self, x: int, y: int, w: int, h: int, factor: float
     ) -> None:
         tile = self.surface.subsurface(pygame.Rect(x, y, w, h))
         new_size = (w * factor, h * factor)
         self.surface = pygame.transform.scale(tile, new_size)
+        self.width = self.surface.get_width()
+        self.height = self.surface.get_height()
+
+    def upscale(self, scale: float) -> None:
+        self.surface = pygame.transform.scale(
+            self.surface, (self.width * scale, self.height * scale)
+        )
         self.width = self.surface.get_width()
         self.height = self.surface.get_height()
 

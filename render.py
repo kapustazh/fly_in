@@ -12,8 +12,8 @@ from layers import (
     MapLayer,
     FlagsLayer,
     DronesLayer,
-    HUDLayer,
     LayerRenderError,
+    MapLegendLayer,
 )
 from pygame.surface import Surface
 from game import GameWorld
@@ -48,11 +48,7 @@ class Renderer:
             MapLayer(),
             FlagsLayer(),
             DronesLayer(),
-            HUDLayer(
-                text="Map Legend",
-                x=self.WIDTH // 2 - 800,
-                y=self.HEIGHT // 4,
-            ),
+            MapLegendLayer(self.WIDTH // 32, self.HEIGHT // 4),
         ]
 
     def _init_pygame(self) -> None:

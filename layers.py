@@ -181,7 +181,7 @@ class DronesLayer(RenderLayer):
                 )
 
 
-class HUDLayer(RenderLayer):
+class TextLayer(RenderLayer):
     def __init__(
         self,
         text: str,
@@ -204,3 +204,34 @@ class HUDLayer(RenderLayer):
                 current_position += space_width
             else:
                 raise LayerRenderError(f"No character in the font: {char}")
+
+
+class HUDLayer(RenderLayer):
+    pass
+
+
+class MapLegendLayer(RenderLayer):
+    BOARD_SIZE = 3
+
+    def __init__(
+        self,
+        x: int,
+        y: int,
+    ) -> None:
+        self.text: TextLayer
+        self.x = x
+        self.y = y
+
+    def render(self, screen: Surface, context: RenderContext) -> None:
+        tile_w = context.assets.wood_tile.width
+        current_x = self.x
+        for _ in range(self.BOARD_SIZE):
+            current_y = self.y
+            for _ in range(self.BOARD_SIZE):
+                screen.blit(
+                    context.assets.wood_tile.surface, (current_x, current_y)
+                )
+                current_y += tile_w
+            current_x += tile_w
+        self.text = TextLayer("Map Legend", self.x + tile_w, self.y)
+        self.text.render(screen, context)
