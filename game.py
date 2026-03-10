@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from fly_in.drone import DronesArmada
+from drone import DronesArmada
 from typing import Dict, Any
 from collections.abc import Mapping
 

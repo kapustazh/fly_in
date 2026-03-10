@@ -1,13 +1,12 @@
 import os
-from pygame.surface import Surface
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
-import pygame  # noqa: E402
+import pygame  # noqa E402
 
 
 class Sprite:
-    def __init__(self, surface: Surface) -> None:
-        self.surface: Surface = surface
+    def __init__(self, surface: pygame.Surface) -> None:
+        self.surface: pygame.Surface = surface
         self.width: int = surface.get_width()
         self.height: int = surface.get_height()
 
@@ -22,10 +21,10 @@ class Sprite:
 
 
 class AnimatedSprite(Sprite):
-    def __init__(self, surface: Surface, num_frames: int) -> None:
+    def __init__(self, surface: pygame.Surface, num_frames: int) -> None:
         super().__init__(surface)
         self.num_frames: int = num_frames
-        self.frames: list[Surface] = []
+        self.frames: list[pygame.Surface] = []
 
     def prepare_frames(self, scale: float = 1.0) -> None:
         width = self.width // self.num_frames
@@ -33,17 +32,17 @@ class AnimatedSprite(Sprite):
             rect = pygame.Rect(i * width, 0, width, self.height)
             frame = self.surface.subsurface(rect)
             new_size = (
-                int(frame.get_width() * scale),
-                int(frame.get_height() * scale),
+                frame.get_width() * scale,
+                frame.get_height() * scale,
             )
             frame = pygame.transform.scale(frame, new_size)
             self.frames.append(frame)
 
 
 class Font(Sprite):
-    def __init__(self, surface: Surface):
+    def __init__(self, surface: pygame.Surface):
         super().__init__(surface)
-        self.frames: dict[str, Surface] = {}
+        self.frames: dict[str, pygame.Surface] = {}
 
     def prepare_frames(self, scale: float = 1) -> None:
         char_sequence = (

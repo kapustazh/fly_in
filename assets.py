@@ -1,5 +1,5 @@
-from fly_in.sprites import Sprite, AnimatedSprite, Font
-from fly_in.drone import DroneSprite
+from sprites import Sprite, AnimatedSprite, Font
+from drone import DroneSprite
 import os
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
@@ -87,13 +87,12 @@ class AssetManager:
         self.water.prepare_frames(scale=2.0)
         self.russia_flag.prepare_frames(scale=1.5)
         self.ua_flag.prepare_frames(scale=1.5)
-        # scale obstacle surface by factor 1.5
-        old = self.obstacle.surface
-        new_size = (
-            int(old.get_width() * 1.5),
-            int(old.get_height() * 1.5),
+        size = self.obstacle.surface
+        rescaled = (
+            size.get_width() * 1.5,
+            size.get_height() * 1.5,
         )
-        self.obstacle.surface = pygame.transform.scale(old, new_size)
+        self.obstacle.surface = pygame.transform.scale(size, rescaled)
         self.island.update_upscaled_surface(48, 48, 16, 16, factor=2.5)
         self.wood_font.prepare_frames()
         self.drone_sprite.prepare_frames(scale=0.1)

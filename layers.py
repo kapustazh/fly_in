@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from collections.abc import Mapping
 import pygame
-from fly_in.assets import AssetManager
+from assets import AssetManager
 from pygame.surface import Surface
 
 

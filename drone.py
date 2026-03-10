@@ -2,8 +2,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 from pygame.surface import Surface
-from fly_in.sprites import AnimatedSprite
-import pygame
+from sprites import AnimatedSprite
+import os
+
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+import pygame  # noqa: E402
 
 
 class DroneSprite(AnimatedSprite):

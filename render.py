@@ -1,10 +1,11 @@
-from fly_in.parser import InputParser, FileReaderError, ParsingError
+from parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
+import os
 from typing import Dict, Any
 from collections.abc import Mapping
-from fly_in.assets import AssetManager, AssetError
-from fly_in.layers import (
+from assets import AssetManager, AssetError
+from layers import (
     RenderContext,
     RenderLayer,
     WaterLayer,
@@ -14,9 +15,11 @@ from fly_in.layers import (
     HUDLayer,
     LayerRenderError,
 )
-import pygame
 from pygame.surface import Surface
-from fly_in.game import GameWorld
+from game import GameWorld
+
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+import pygame  # noqa: E402
 
 
 # suppress the pygame startup banner
