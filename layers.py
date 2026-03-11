@@ -8,7 +8,6 @@ import pygame
 from assets import AssetManager
 from pygame.surface import Surface
 
-
 SAND_COLOR = (194, 178, 128)
 
 
@@ -60,9 +59,58 @@ class WaterLayer(RenderLayer):
 
 
 class MapLayer(RenderLayer):
+    TINT_ALPHA = 190
+    RAINBOW_CYCLE_MS = 6000
+
     def render(self, screen: Surface, context: RenderContext) -> None:
         self._render_bridges(screen, context)
         self._render_zones(screen, context)
+
+    def _resolve_color(
+        self,
+        color_name: str,
+        current_time: int,
+    ) -> pygame.Color | None:
+        if color_name == "rainbow":
+            hue = int(
+                (current_time % self.RAINBOW_CYCLE_MS)
+                / self.RAINBOW_CYCLE_MS
+                * 360
+            )
+            color = pygame.Color(0, 0, 0)
+            color.hsva = (hue, 100, 100, 100)
+            return color
+        try:
+            return pygame.Color(color_name)
+        except ValueError:
+            print(f"[MapLayer] Unknown color '{color_name}', skipping tint.")
+            return None
+
+    def _get_tinted_surface(
+        self,
+        base_surface: Surface,
+        tint_color: pygame.Color,
+    ) -> Surface:
+
+        tinted_surface = base_surface.copy()
+
+        tint_overlay = pygame.Surface(base_surface.get_size(), pygame.SRCALPHA)
+        tint_overlay.fill((tint_color.r, tint_color.g, tint_color.b, 255))
+
+        alpha_mask = base_surface.copy()
+        alpha_mask.fill(
+            (255, 255, 255, self.TINT_ALPHA),
+            None,
+            pygame.BLEND_RGBA_MULT,
+        )
+        tint_overlay.blit(
+            alpha_mask,
+            (0, 0),
+            special_flags=pygame.BLEND_RGBA_MULT,
+        )
+
+        tinted_surface.blit(tint_overlay, (0, 0))
+        return tinted_surface
 
     def _render_bridges(
         self,
@@ -114,21 +162,41 @@ class MapLayer(RenderLayer):
         tile_w = context.assets.island.width
         for zone in context.zones.values():
             x, y = zone["coordinates"]
-            is_blocked = zone.get("metadata", {}).zone == "blocked"
+            metadata = zone.get("metadata")
+            is_blocked = getattr(metadata, "zone", "normal") == "blocked"
+            zone_color = getattr(metadata, "color", None)
+
+            base_surface = (
+                context.assets.obstacle.surface
+                if is_blocked
+                else context.assets.island.surface
+            )
+            tint_color = (
+                self._resolve_color(zone_color, context.current_time)
+                if zone_color is not None
+                else None
+            )
+            surface_to_draw = (
+                self._get_tinted_surface(base_surface, tint_color)
+                if tint_color is not None
+                else base_surface
+            )
+
+            y_offset = -4 if is_blocked else 0
             if is_blocked:
                 screen.blit(
-                    context.assets.obstacle.surface,
+                    surface_to_draw,
                     (
                         x * tile_w + context.offset_x,
-                        y * tile_w + context.offset_y - 4,
+                        y * tile_w + context.offset_y + y_offset,
                     ),
                 )
             else:
                 screen.blit(
-                    context.assets.island.surface,
+                    surface_to_draw,
                     (
                         x * tile_w + context.offset_x,
-                        y * tile_w + context.offset_y,
+                        y * tile_w + context.offset_y + y_offset,
                     ),
                 )
 
@@ -198,7 +266,7 @@ class TextLayer(RenderLayer):
             if char in context.assets.wood_font.frames:
                 char_surface = context.assets.wood_font.frames[char]
                 screen.blit(char_surface, (current_position, self.y))
-                current_position += char_surface.get_width() - 2
+                current_position += char_surface.get_width() - 1
             elif char == " ":
                 space_width = context.assets.wood_font.frames["A"].get_width()
                 current_position += space_width
@@ -212,6 +280,7 @@ class HUDLayer(RenderLayer):
 
 class MapLegendLayer(RenderLayer):
     BOARD_SIZE = 3
+    ICON_SIZE = 32
 
     def __init__(
         self,
@@ -223,6 +292,11 @@ class MapLegendLayer(RenderLayer):
         self.y = y
 
     def render(self, screen: Surface, context: RenderContext) -> None:
+        self._render_board(screen, context)
+        self._render_objects(screen, context)
+        self._draw_amogus(screen, context)
+
+    def _render_board(self, screen: Surface, context: RenderContext) -> None:
         tile_w = context.assets.wood_tile.width
         current_x = self.x
         for _ in range(self.BOARD_SIZE):
@@ -233,5 +307,49 @@ class MapLegendLayer(RenderLayer):
                 )
                 current_y += tile_w
             current_x += tile_w
-        self.text = TextLayer("Map Legend", self.x + tile_w, self.y)
+        self.text = TextLayer(
+            "Map Legend",
+            self.x + (self.BOARD_SIZE * context.assets.wood_tile.width) // 4,
+            self.y,
+        )
         self.text.render(screen, context)
+
+    def _render_objects(self, screen: Surface, context: RenderContext) -> None:
+        objects: list[tuple[Surface, str]] = [
+            (context.assets.island.surface, "Zone"),
+            (
+                self.get_current_sprite(
+                    current_time=context.current_time,
+                    sprite=context.assets.ua_flag,
+                ),
+                "Start hub",
+            ),
+            (
+                self.get_current_sprite(
+                    current_time=context.current_time,
+                    sprite=context.assets.russia_flag,
+                ),
+                "End hub",
+            ),
+            (context.assets.obstacle.surface, "Obstacle"),
+        ]
+
+        tile_w = context.assets.wood_tile.width
+        text_x = self.x + self.BOARD_SIZE // 2 * tile_w
+        current_y = self.y + tile_w
+        for surface, label in objects:
+            icon = pygame.transform.scale(
+                surface, (self.ICON_SIZE, self.ICON_SIZE)
+            )
+            screen.blit(icon, (self.x, current_y))
+            TextLayer(label, text_x, current_y).render(screen, context)
+            current_y += self.ICON_SIZE + 10
+
+    def _draw_amogus(self, screen: Surface, context: RenderContext) -> None:
+        amogus = pygame.transform.scale(
+            context.assets.amogus.surface, (self.ICON_SIZE, self.ICON_SIZE)
+        )
+        screen.blit(
+            amogus,
+            (self.x, self.y),
+        )

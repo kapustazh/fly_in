@@ -22,6 +22,7 @@ class AssetManager:
         self.drone_sprite: DroneSprite
         self.wood_font: Font
         self.wood_tile: Sprite
+        self.amogus: Sprite
 
     def load(self) -> None:
         assets_root = os.path.join(os.path.dirname(__file__), "assets")
@@ -70,12 +71,17 @@ class AssetManager:
             )
             self.wood_tile = Font(
                 surface=pygame.image.load(
-                    asset_path("sprites", "oak_plank.png")
+                    asset_path("sprites", "birch-plank.png")
                 ).convert_alpha(),
             )
             self.drone_sprite = DroneSprite(
                 surface=pygame.image.load(
                     asset_path("sprites", "drone_sprite.png")
+                ).convert_alpha(),
+            )
+            self.amogus = Sprite(
+                surface=pygame.image.load(
+                    asset_path("sprites", "amogus.png")
                 ).convert_alpha(),
             )
         except FileNotFoundError as e:
@@ -92,4 +98,5 @@ class AssetManager:
         self.wood_font.prepare_frames()
         self.drone_sprite.prepare_frames(scale=0.1)
         self.wood_tile.upscale(scale=0.3)
+        self.amogus.upscale(scale=0.3)
         pygame.display.set_icon(self.icon.surface)
