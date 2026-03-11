@@ -26,6 +26,7 @@ class RenderContext:
     offset_y: int
     width: int
     height: int
+    mouse_position: tuple[int, int]
 
 
 class RenderLayer(ABC):
@@ -255,27 +256,45 @@ class TextLayer(RenderLayer):
         text: str,
         x: int,
         y: int,
+        strict: bool = True,
     ) -> None:
         self.text = text
         self.x = x
         self.y = y
+        self.strict = strict
 
     def render(self, screen: Surface, context: RenderContext) -> None:
+        font_frames = context.assets.wood_font.frames
         current_position = self.x
+        space_width = font_frames["A"].get_width()
         for char in self.text:
-            if char in context.assets.wood_font.frames:
-                char_surface = context.assets.wood_font.frames[char]
+            if char in font_frames:
+                char_surface = font_frames[char]
                 screen.blit(char_surface, (current_position, self.y))
                 current_position += char_surface.get_width() - 1
-            elif char == " ":
-                space_width = context.assets.wood_font.frames["A"].get_width()
-                current_position += space_width
             else:
-                raise LayerRenderError(f"No character in the font: {char}")
+                if self.strict and char != " ":
+                    raise LayerRenderError(f"No character in the font: {char}")
+                current_position += space_width
+
+    def get_text_width(self, context: RenderContext) -> int:
+        """Measure pixel width with the same rules as `render()`."""
+        font_frames = context.assets.wood_font.frames
+        space_width = font_frames["A"].get_width()
+        width = 0
+        for char in self.text:
+            if char in font_frames:
+                width += font_frames[char].get_width() - 1
+            else:
+                if self.strict and char != " ":
+                    raise LayerRenderError(f"No character in the font: {char}")
+                width += space_width
+        return width
 
 
 class HUDLayer(RenderLayer):
-    pass
+    def render(self, screen: Surface, context: RenderContext) -> None:
+        TextLayer("Number of turns: 0", 10, 10).render(screen, context)
 
 
 class MapLegendLayer(RenderLayer):
@@ -353,3 +372,129 @@ class MapLegendLayer(RenderLayer):
             amogus,
             (self.x, self.y),
         )
+
+
+class ZoneTooltipLayer(RenderLayer):
+    PADDING: int = 8
+    LINE_SPACING: int = 4
+    BG_COLOR: tuple[int, int, int, int] = (30, 20, 10, 210)
+    BORDER_COLOR: tuple[int, int, int] = (200, 170, 100)
+    CURSOR_OFFSET: int = 1
+
+    def _get_hovered_zone(
+        self,
+        context: RenderContext,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return the (name, zone) pair the mouse is currently over."""
+        tile_w = context.assets.island.width
+        mx, my = context.mouse_position
+
+        for name, zone in context.zones.items():
+            coords = zone.get("coordinates")
+            if not coords or len(coords) < 2:
+                continue
+            x, y = coords
+            rect = pygame.Rect(
+                x * tile_w + context.offset_x,
+                y * tile_w + context.offset_y,
+                tile_w,
+                tile_w,
+            )
+            if rect.collidepoint(mx, my):
+                return name, zone
+
+        return None
+
+    def _build_lines(
+        self,
+        name: str,
+        zone: dict[str, Any],
+        context: RenderContext,
+    ) -> list[str]:
+        metadata = zone.get("metadata")
+        hub_type = zone.get("hub_type", "hub")
+        zone_type = getattr(metadata, "zone", "normal")
+        max_drones = getattr(metadata, "max_drones", 1)
+        color = getattr(metadata, "color", None)
+        zone_conn = context.connections.get(name, {})
+        neighbors: set[str] = zone_conn.get("connections", set())
+        conn_meta: dict[str, Any] = zone_conn.get("metadata", {})
+
+        lines: list[str] = [
+            f"name: {name}",
+            f"type: {hub_type}",
+            f"zone: {zone_type}",
+            f"max drones: {max_drones}",
+        ]
+        if color is not None:
+            lines.append(f"color: {color}")
+        if neighbors:
+            lines.append(f"connections: {len(neighbors)}")
+            for neighbor in sorted(neighbors):
+                capacity = getattr(
+                    conn_meta.get(neighbor), "max_link_capacity", 1
+                )
+                lines.append(f"to {neighbor}: capacity {capacity}")
+        return lines
+
+    def _get_box_size(
+        self,
+        lines: list[str],
+        context: RenderContext,
+    ) -> tuple[int, int, int]:
+        """Return (char_height, box_width, box_height) for the tooltip."""
+        font_frames = context.assets.wood_font.frames
+        char_h = font_frames["A"].get_height()
+        max_line_w = max(
+            TextLayer(line, 0, 0, strict=False).get_text_width(context)
+            for line in lines
+        )
+        box_w = max_line_w + 2 * self.PADDING
+        box_h = (char_h + self.LINE_SPACING) * len(lines) + 2 * self.PADDING
+        return char_h, box_w, box_h
+
+    def _get_box_position(
+        self,
+        context: RenderContext,
+        box_w: int,
+        box_h: int,
+    ) -> tuple[int, int]:
+        mx, my = context.mouse_position
+        bx = mx + self.CURSOR_OFFSET
+        by = my + self.CURSOR_OFFSET
+        return bx, by
+
+    def _render_lines(
+        self,
+        screen: Surface,
+        context: RenderContext,
+        lines: list[str],
+        bx: int,
+        by: int,
+        char_h: int,
+    ) -> None:
+        current_y = by + self.PADDING
+        for line in lines:
+            TextLayer(line, bx + self.PADDING, current_y, strict=False).render(
+                screen,
+                context,
+            )
+            current_y += char_h + self.LINE_SPACING
+
+    def render(self, screen: Surface, context: RenderContext) -> None:
+        """Render a tooltip with all zone info when hovering over a tile."""
+        hovered = self._get_hovered_zone(context)
+        if hovered is None:
+            return
+
+        name, zone = hovered
+        lines = self._build_lines(name, zone, context)
+        char_h, box_w, box_h = self._get_box_size(lines, context)
+        bx, by = self._get_box_position(context, box_w, box_h)
+
+        bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        bg.fill(self.BG_COLOR)
+        screen.blit(bg, (bx, by))
+        pygame.draw.rect(screen, self.BORDER_COLOR, (bx, by, box_w, box_h), 2)
+
+        self._render_lines(screen, context, lines, bx, by, char_h)

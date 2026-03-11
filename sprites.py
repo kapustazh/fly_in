@@ -47,20 +47,23 @@ class AnimatedSprite(Sprite):
 
 
 class Font(Sprite):
+    # characters are laid out left‑to‑right, top‑to‑bottom in the image
+    CHAR_SEQUENCE: tuple[str, ...] = tuple(
+        "ABCDEFGHIJKL"
+        "MNOPQRSTUVWX"
+        "YZ1234567890"
+        "abcdefghijkl"
+        "mnopqrstuvwx"
+        "yz:"
+    )
+    # immutable membership set used elsewhere for sanitization
+    SUPPORTED_CHARS: frozenset[str] = frozenset(CHAR_SEQUENCE)
+
     def __init__(self, surface: pygame.Surface):
         super().__init__(surface)
         self.frames: dict[str, pygame.Surface] = {}
 
     def prepare_frames(self, scale: float = 1) -> None:
-        char_sequence = (
-            "ABCDEFGHIJKL"
-            "MNOPQRSTUVWX"
-            "YZ1234567890"
-            "abcdefghijkl"
-            "mnopqrstuvwx"
-            "yz:"
-        )
-
         columns = 12
         rows = 6
         cell_width = self.width // columns
@@ -69,9 +72,9 @@ class Font(Sprite):
         char_index = 0
         for row in range(rows):
             for col in range(columns):
-                if char_index >= len(char_sequence):
+                if char_index >= len(self.CHAR_SEQUENCE):
                     break
-                char = char_sequence[char_index]
+                char = self.CHAR_SEQUENCE[char_index]
                 rect = pygame.Rect(
                     col * cell_width,
                     row * cell_height,

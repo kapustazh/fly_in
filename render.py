@@ -14,6 +14,8 @@ from layers import (
     DronesLayer,
     LayerRenderError,
     MapLegendLayer,
+    HUDLayer,
+    ZoneTooltipLayer,
 )
 from pygame.surface import Surface
 from game import GameWorld
@@ -49,6 +51,8 @@ class Renderer:
             FlagsLayer(),
             DronesLayer(),
             MapLegendLayer(self.WIDTH // 32, self.HEIGHT // 4),
+            HUDLayer(),
+            ZoneTooltipLayer(),
         ]
 
     def _init_pygame(self) -> None:
@@ -74,6 +78,7 @@ class Renderer:
             offset_y=self.offset_y,
             width=self.WIDTH,
             height=self.HEIGHT,
+            mouse_position=pygame.mouse.get_pos(),
         )
 
     def run(self) -> None:
