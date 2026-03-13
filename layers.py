@@ -456,8 +456,6 @@ class ZoneTooltipLayer(RenderLayer):
     def _get_box_position(
         self,
         context: RenderContext,
-        box_w: int,
-        box_h: int,
     ) -> tuple[int, int]:
         mx, my = context.mouse_position
         bx = mx + self.CURSOR_OFFSET
@@ -490,7 +488,7 @@ class ZoneTooltipLayer(RenderLayer):
         name, zone = hovered
         lines = self._build_lines(name, zone, context)
         char_h, box_w, box_h = self._get_box_size(lines, context)
-        bx, by = self._get_box_position(context, box_w, box_h)
+        bx, by = self._get_box_position(context)
 
         bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
         bg.fill(self.BG_COLOR)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
-from typing import Any, Protocol
+from turtle import right
+from typing import Any, Literal, Protocol
 from pygame.surface import Surface
 from sprites import AnimatedSprite
 import os
@@ -66,22 +67,13 @@ class SupportsDroneSprite(Protocol):
 class Drone:
     def __init__(
         self,
-        sprite: DroneSprite,
         current_zone: str,
         pixel_position: tuple[float, float],
     ) -> None:
-        self.sprite = sprite
         self.current_zone = current_zone
         self.path: list[tuple[float, float]] = []
         self.pixel_position = pixel_position
-
-    def update(self, animation: float) -> None:
-        """Update hook for future movement/pathfinding logic."""
-        _ = animation
-        if not self.path:
-            self.sprite.wait_idle()
-            return
-        self.sprite.wait_idle()
+        self.orientation: Literal["left", "right", "idle"] = "idle"
 
 
 class DronesArmada:
