@@ -1,6 +1,5 @@
 from __future__ import annotations
 from collections.abc import Mapping
-from turtle import right
 from typing import Any, Literal, Protocol
 from pygame.surface import Surface
 from sprites import AnimatedSprite
@@ -106,7 +105,6 @@ class DronesArmada:
             start_name, start_zone = start_hubs[i % len(start_hubs)]
             x, y = start_zone["coordinates"]
             drone = Drone(
-                sprite=self._assets.drone_sprite,
                 current_zone=start_name,
                 pixel_position=(float(x) * tile_size, float(y) * tile_size),
             )
@@ -114,7 +112,4 @@ class DronesArmada:
 
     def add_drone(self, drone: Drone) -> None:
         self.drones.append(drone)
-
-    def update(self, animation: float) -> None:
-        for drone in self.drones:
-            drone.update(animation)
+]
