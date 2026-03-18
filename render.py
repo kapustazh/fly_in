@@ -155,7 +155,6 @@ class InformationManager:
             zones=self._zones,
             connections=self._connections,
             num_drones=self._num_drones,
-            armada=None,
         )
         Renderer(game_world=game_word, assets=assets).run()
 

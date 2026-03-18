@@ -16,8 +16,10 @@ class DroneSprite(AnimatedSprite):
     def __init__(self, surface: Surface) -> None:
         super().__init__(surface, num_frames=self.COLS * self.ROWS)
         self.orientation_status = "idle"
-        self.frames_right: list[Surface] = []
-        self.frames_left: list[Surface] = []
+        self.frames_right_down: list[Surface] = []
+        self.frames_left_down: list[Surface] = []
+        self.frames_right_up: list[Surface] = []
+        self.frames_left_up: list[Surface] = []
 
     def prepare_frames(self, scale: float = 1.0) -> None:
         frame_w = self.width // self.COLS
@@ -36,6 +38,12 @@ class DroneSprite(AnimatedSprite):
                 self.frames.append(frame)
         self.frames_right = self.frames[8:12]
         self.frames_left = self.frames[12:16]
+        self.frames_right_up = [
+            pygame.transform.rotate(frame, 90) for frame in self.frames_right
+        ]
+        self.frames_left_up = [
+            pygame.transform.rotate(frame, 90) for frame in self.frames_left
+        ]
 
     def get_drone_frame(
         self, current_time: int, animation: int = 150
@@ -59,10 +67,6 @@ class DroneSprite(AnimatedSprite):
         self.orientation_status = "idle"
 
 
-class SupportsDroneSprite(Protocol):
-    drone_sprite: DroneSprite
-
-
 class Drone:
     def __init__(
         self,
@@ -72,44 +76,3 @@ class Drone:
         self.current_zone = current_zone
         self.path: list[tuple[float, float]] = []
         self.pixel_position = pixel_position
-        self.orientation: Literal["left", "right", "idle"] = "idle"
-
-
-class DronesArmada:
-    def __init__(
-        self,
-        num_drones: int,
-        assets: SupportsDroneSprite,
-        zones: Mapping[str, dict[str, Any]],
-        tile_size: float,
-    ) -> None:
-        self.drones: list[Drone] = []
-        self.num_drones = num_drones
-        self._assets = assets
-        self._spawn_on_start_hubs(zones=zones, tile_size=tile_size)
-
-    def _spawn_on_start_hubs(
-        self,
-        zones: Mapping[str, dict[str, Any]],
-        tile_size: float,
-    ) -> None:
-        start_hubs = [
-            (name, zone)
-            for name, zone in zones.items()
-            if zone.get("hub_type") == "start_hub"
-        ]
-        if not start_hubs:
-            return
-
-        for i in range(self.num_drones):
-            start_name, start_zone = start_hubs[i % len(start_hubs)]
-            x, y = start_zone["coordinates"]
-            drone = Drone(
-                current_zone=start_name,
-                pixel_position=(float(x) * tile_size, float(y) * tile_size),
-            )
-            self.drones.append(drone)
-
-    def add_drone(self, drone: Drone) -> None:
-        self.drones.append(drone)
-]
