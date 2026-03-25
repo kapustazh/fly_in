@@ -1,12 +1,13 @@
 import os
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+from pygame.surface import Surface  # noqa E402
 import pygame  # noqa E402
 
 
 class Sprite:
-    def __init__(self, surface: pygame.Surface) -> None:
-        self.surface: pygame.Surface = surface
+    def __init__(self, surface: Surface) -> None:
+        self.surface: Surface = surface
         self.width: int = surface.get_width()
         self.height: int = surface.get_height()
 
@@ -28,10 +29,10 @@ class Sprite:
 
 
 class AnimatedSprite(Sprite):
-    def __init__(self, surface: pygame.Surface, num_frames: int) -> None:
+    def __init__(self, surface: Surface, num_frames: int) -> None:
         super().__init__(surface)
         self.num_frames: int = num_frames
-        self.frames: list[pygame.Surface] = []
+        self.frames: list[Surface] = []
 
     def prepare_frames(self, scale: float = 1.0) -> None:
         width = self.width // self.num_frames
@@ -56,12 +57,10 @@ class Font(Sprite):
         "mnopqrstuvwx"
         "yz:"
     )
-    # immutable membership set used elsewhere for sanitization
-    SUPPORTED_CHARS: frozenset[str] = frozenset(CHAR_SEQUENCE)
 
-    def __init__(self, surface: pygame.Surface):
+    def __init__(self, surface: Surface):
         super().__init__(surface)
-        self.frames: dict[str, pygame.Surface] = {}
+        self.frames: dict[str, Surface] = {}
 
     def prepare_frames(self, scale: float = 1) -> None:
         columns = 12

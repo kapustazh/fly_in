@@ -1,8 +1,10 @@
 from sprites import Sprite, AnimatedSprite, Font
 from drone import DroneSprite
+from pathlib import Path
 import os
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+from pygame.surface import Surface  # noqa: E402
 import pygame  # noqa: E402
 
 
@@ -11,6 +13,7 @@ class AssetError(Exception):
         super().__init__(f"Asset loading error: {detail}")
 
 
+# Added pathlib instead of the old os.path.join why not
 class AssetManager:
     def __init__(self) -> None:
         self.water: AnimatedSprite
@@ -25,65 +28,39 @@ class AssetManager:
         self.amogus: Sprite
 
     def load(self) -> None:
-        assets_root = os.path.join(os.path.dirname(__file__), "assets")
+        assets_root = Path(__file__).parent / "assets"
 
-        def asset_path(*parts: str) -> str:
-            return os.path.join(assets_root, *parts)
+        def load_image(*parts: str) -> Surface:
+            return pygame.image.load(
+                assets_root.joinpath(*parts)
+            ).convert_alpha()
 
         try:
             self.water = AnimatedSprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "water.png")
-                ).convert_alpha(),
+                surface=load_image("sprites", "water.png"),
                 num_frames=4,
             )
-            self.icon = Sprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "icon.jpg")
-                ).convert_alpha()
-            )
-            self.island = Sprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "grass.png")
-                ).convert_alpha(),
-            )
+            self.icon = Sprite(surface=load_image("sprites", "icon.jpg"))
+            self.island = Sprite(surface=load_image("sprites", "grass.png"))
             self.obstacle = Sprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "obstacle.png")
-                ).convert_alpha()
+                surface=load_image("sprites", "obstacle.png")
             )
             self.campfire = AnimatedSprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "campfire.png")
-                ).convert_alpha(),
+                surface=load_image("sprites", "campfire.png"),
                 num_frames=6,
             )
             self.ua_flag = AnimatedSprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "flag_ua.png")
-                ).convert_alpha(),
+                surface=load_image("sprites", "flag_ua.png"),
                 num_frames=5,
             )
-            self.wood_font = Font(
-                surface=pygame.image.load(
-                    asset_path("fonts", "WoodFont.png")
-                ).convert_alpha(),
-            )
+            self.wood_font = Font(surface=load_image("fonts", "WoodFont.png"))
             self.wood_tile = Font(
-                surface=pygame.image.load(
-                    asset_path("sprites", "birch-plank.png")
-                ).convert_alpha(),
+                surface=load_image("sprites", "birch-plank.png")
             )
             self.drone_sprite = DroneSprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "drone_sprite.png")
-                ).convert_alpha(),
+                surface=load_image("sprites", "drone_sprite.png"),
             )
-            self.amogus = Sprite(
-                surface=pygame.image.load(
-                    asset_path("sprites", "amogus.png")
-                ).convert_alpha(),
-            )
+            self.amogus = Sprite(surface=load_image("sprites", "amogus.png"))
         except FileNotFoundError as e:
             raise AssetError(str(e))
 
