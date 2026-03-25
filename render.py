@@ -18,6 +18,9 @@ from layers import (
     ZoneTooltipLayer,
 )
 from game import GameWorld
+from map_layout import ZoneLayout
+from pathfinding import RoutePlanner
+from drone import DroneArmada, DroneNavigationContext
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 from pygame.surface import Surface  # noqa: E402
@@ -36,24 +39,27 @@ class Renderer:
         game_world: GameWorld,
         assets: AssetManager,
     ) -> None:
+        self._game_world = game_world
         self.zones = game_world.zones
         self.connections = game_world.connections
-        self.game_world = game_world
         self.assets = assets
-        self.zones_pixel_pos: dict[str, tuple[float, float]] = {}
+        self.drone_armada = DroneArmada()
+        self._zone_layout: ZoneLayout | None = None
         self.screen: Surface
         self.clock: pygame.time.Clock
         self.running = True
         self.current_time: int
         self.offset_x: int
         self.offset_y: int
+        legend_x = self.WIDTH // 32
+        legend_y = self.HEIGHT // 4
         self.layers: list[RenderLayer] = [
             WaterLayer(),
             MapLayer(),
             FlagsLayer(),
             DronesLayer(),
-            MapLegendLayer(self.WIDTH // 32, self.HEIGHT // 4),
-            HUDLayer(),
+            MapLegendLayer(legend_x, legend_y),
+            HUDLayer(legend_x, legend_y),
             ZoneTooltipLayer(),
         ]
 
@@ -70,29 +76,58 @@ class Renderer:
         self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
         self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
 
-    # 40 - offeset to make it a bit heigher
-    def _compute_zones_pixel_pos(self) -> None:
-        """Pre-compute pixel positions for all zones."""
+    # Shift zone centers up by 40 px in Y.
+    def _build_zone_layout(self) -> None:
+        """Pre-compute pixel centers and offsets for all zones."""
         tile_w = self.assets.island.width
+        pixel_center_by_zone: dict[str, tuple[float, float]] = {}
         for zone_name, zone in self.zones.items():
             x, y = zone["coordinates"]
             px = float(x * tile_w + self.offset_x)
             py = float(y * tile_w + self.offset_y - 40)
-            self.zones_pixel_pos[zone_name] = (px, py)
+            pixel_center_by_zone[zone_name] = (px, py)
+        self._zone_layout = ZoneLayout(
+            pixel_center_by_zone=pixel_center_by_zone,
+            offset_x=self.offset_x,
+            offset_y=self.offset_y,
+        )
 
     def _build_context(self) -> RenderContext:
+        assert self._zone_layout is not None
         return RenderContext(
             zones=self.zones,
             connections=self.connections,
-            zones_pixel_pos=self.zones_pixel_pos,
+            layout=self._zone_layout,
             assets=self.assets,
             current_time=self.current_time,
-            offset_x=self.offset_x,
-            offset_y=self.offset_y,
             width=self.WIDTH,
             height=self.HEIGHT,
             mouse_position=pygame.mouse.get_pos(),
+            drone_armada=self.drone_armada,
         )
+
+    def _spawn_armada(self) -> None:
+        assert self._zone_layout is not None
+        route_planner = RoutePlanner(self._game_world)
+        drone_navigation_context = DroneNavigationContext(
+            layout=self._zone_layout,
+            movement_model=route_planner.movement_model,
+        )
+        self.drone_armada = DroneArmada()
+        self.drone_armada.create_an_armada(
+            drone_count=self._game_world.num_drones,
+            game_world=self._game_world,
+            navigation_context=drone_navigation_context,
+            route_planner=route_planner,
+        )
+        self.drone_armada.launch_armada()
+
+    def _restart_simulation(self) -> None:
+        for layer in self.layers:
+            if isinstance(layer, DronesLayer):
+                layer.reset_frame_clock()
+                break
+        self._spawn_armada()
 
     def run(self) -> None:
         self._init_pygame()
@@ -102,7 +137,8 @@ class Renderer:
             print(e)
             sys.exit(1)
         self._compute_offset()
-        self._compute_zones_pixel_pos()
+        self._build_zone_layout()
+        self._spawn_armada()
         try:
             while self.running:
                 for event in pygame.event.get():
@@ -111,6 +147,8 @@ class Renderer:
                     if event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_q:
                             self.running = False
+                        if event.key == pygame.K_r:
+                            self._restart_simulation()
                 self.current_time = pygame.time.get_ticks()
                 context = self._build_context()
                 for layer in self.layers:
@@ -168,12 +206,12 @@ class InformationManager:
         # import pprint
 
         # pprint.pprint(self._zones)
-        game_word = GameWorld(
+        game_world = GameWorld.from_parsed_map(
             zones=self._zones,
             connections=self._connections,
             num_drones=self._num_drones,
         )
-        Renderer(game_world=game_word, assets=assets).run()
+        Renderer(game_world=game_world, assets=assets).run()
 
 
 if __name__ == "__main__":

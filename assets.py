@@ -1,5 +1,5 @@
 from sprites import Sprite, AnimatedSprite, Font
-from drone import DroneSprite
+from drone_sprite import DroneSprite
 from pathlib import Path
 import os
 
@@ -73,7 +73,7 @@ class AssetManager:
         self.obstacle.upscale(scale=1.5)
         self.island.get_upscaled_from_mask(48, 48, 16, 16, factor=2.5)
         self.wood_font.prepare_frames()
-        self.drone_sprite.prepare_frames(scale=0.1)
+        self.drone_sprite.prepare_frames(scale=0.082)
         self.wood_tile.upscale(scale=0.3)
         self.amogus.upscale(scale=0.3)
         pygame.display.set_icon(self.icon.surface)

@@ -1,0 +1,276 @@
+"""Turn-based path planning matching subject VII.2 (simultaneous occupancy per turn).
+
+Static per-route zone counts treated every shared zone as a conflict; capacity limits
+apply to drones occupying a zone or traversing a link on the *same* turn, so routes
+that use the same zone at different times are valid.
+"""
+
+from __future__ import annotations
+
+import heapq
+from collections.abc import Mapping
+from math import inf
+from typing import Any, Dict
+
+from game import GameWorld
+from pathfinding import PathfindingError
+from routing_costs import RoutingCostsError, ZoneMovementModel
+
+
+def _link_capacity(
+    connections: Mapping[str, Dict[str, Any]],
+    a: str,
+    b: str,
+) -> int:
+    block = connections.get(a)
+    if block is None:
+        return 0
+    meta = block.get("metadata", {}).get(b)
+    if meta is None:
+        return 1
+    return max(1, getattr(meta, "max_link_capacity", 1))
+
+
+def _zone_max_drones(
+    zones: Mapping[str, Dict[str, Any]],
+    zone_name: str,
+) -> int:
+    zone = zones.get(zone_name)
+    if zone is None:
+        return 1
+    meta = zone.get("metadata")
+    if meta is None:
+        return 1
+    return max(1, getattr(meta, "max_drones", 1))
+
+
+def _neighbors(
+    connections: Mapping[str, Dict[str, Any]],
+    zone_name: str,
+) -> set[str]:
+    block = connections.get(zone_name)
+    if block is None:
+        return set()
+    return set(block.get("connections", set()))
+
+
+class TurnOccupancyLedger:
+    """Sparse per-turn usage for zones (capacity) and undirected links."""
+
+    def __init__(
+        self,
+        zones: Mapping[str, Dict[str, Any]],
+        connections: Mapping[str, Dict[str, Any]],
+        *,
+        exempt_zone_capacity: frozenset[str],
+    ) -> None:
+        self._zones = zones
+        self._connections = connections
+        self._exempt = exempt_zone_capacity
+        self._zone_use: dict[tuple[str, int], int] = {}
+        self._link_use: dict[tuple[frozenset[str], int], int] = {}
+
+    def can_occupy_zone_at(self, zone_name: str, turn: int) -> bool:
+        if zone_name in self._exempt:
+            return True
+        cap = _zone_max_drones(self._zones, zone_name)
+        return self._zone_use.get((zone_name, turn), 0) < cap
+
+    def add_zone_turn(self, zone_name: str, turn: int) -> None:
+        if zone_name in self._exempt:
+            return
+        key = (zone_name, turn)
+        self._zone_use[key] = self._zone_use.get(key, 0) + 1
+
+    def can_use_link_during(
+        self,
+        zone_from: str,
+        zone_to: str,
+        t_start: int,
+        t_end: int,
+    ) -> bool:
+        cap = _link_capacity(self._connections, zone_from, zone_to)
+        if cap <= 0:
+            return False
+        key_edge = frozenset({zone_from, zone_to})
+        for tau in range(t_start, t_end):
+            if self._link_use.get((key_edge, tau), 0) >= cap:
+                return False
+        return True
+
+    def can_use_dest_zone_during(
+        self,
+        zone_to: str,
+        t_start: int,
+        t_end: int,
+    ) -> bool:
+        if zone_to in self._exempt:
+            return True
+        cap = _zone_max_drones(self._zones, zone_to)
+        for tau in range(t_start, t_end):
+            if self._zone_use.get((zone_to, tau), 0) >= cap:
+                return False
+        return True
+
+    def can_move(
+        self,
+        zone_from: str,
+        zone_to: str,
+        t_start: int,
+        t_end: int,
+    ) -> bool:
+        if not self.can_use_link_during(zone_from, zone_to, t_start, t_end):
+            return False
+        if not self.can_use_dest_zone_during(zone_to, t_start, t_end):
+            return False
+        return True
+
+    def reserve_move(
+        self,
+        zone_from: str,
+        zone_to: str,
+        t_start: int,
+        t_end: int,
+    ) -> None:
+        key_edge = frozenset({zone_from, zone_to})
+        for tau in range(t_start, t_end):
+            k = (key_edge, tau)
+            self._link_use[k] = self._link_use.get(k, 0) + 1
+            self.add_zone_turn(zone_to, tau)
+
+    def reserve_wait_turn(self, zone_name: str, turn: int) -> None:
+        self.add_zone_turn(zone_name, turn)
+
+    def reserve_timed_state_chain(self, states: list[tuple[str, int]]) -> None:
+        """Apply reservations from a (zone, time) trajectory including waits."""
+        for i in range(len(states) - 1):
+            z0, t0 = states[i]
+            z1, t1 = states[i + 1]
+            if z0 == z1:
+                if t1 != t0 + 1:
+                    raise ValueError("Invalid wait step in timed chain")
+                self.reserve_wait_turn(z0, t0)
+            else:
+                if t1 <= t0:
+                    raise ValueError("Invalid move step in timed chain")
+                self.reserve_move(z0, z1, t0, t1)
+
+
+def find_timed_path(
+    game_world: GameWorld,
+    movement: ZoneMovementModel,
+    start_zone: str,
+    end_zone: str,
+    ledger: TurnOccupancyLedger,
+    *,
+    max_time: int,
+) -> tuple[list[str], list[tuple[str, int]]] | None:
+    """Return (zone_path_with_waits, timed_states) or None.
+
+    zone_path_with_waits uses repeated zone names for one-turn waits (subject: stay
+    in place). timed_states is the full (zone, t) chain for ledger updates.
+    """
+    zones = game_world.zones
+    connections = game_world.connections
+
+    if start_zone not in zones or end_zone not in zones:
+        raise PathfindingError("Start or end zone missing")
+    try:
+        if not movement.is_passable(start_zone) or not movement.is_passable(
+            end_zone
+        ):
+            raise PathfindingError("Start or end blocked")
+    except RoutingCostsError as e:
+        raise PathfindingError(str(e)) from e
+
+    if start_zone == end_zone:
+        return ([start_zone], [(start_zone, 0)])
+
+    heap: list[tuple[int, int, str, int]] = []
+    g_best: dict[tuple[str, int], int] = {}
+    came_from: dict[tuple[str, int], tuple[str, int]] = {}
+
+    def push(g: int, z: str, t: int) -> None:
+        # Tie-break toward priority zones when total time is equal (subject VII.1).
+        pri = 0 if movement.is_priority(z) else 1
+        heapq.heappush(heap, (g, pri, z, t))
+
+    start_state = (start_zone, 0)
+    g_best[start_state] = 0
+    push(0, start_zone, 0)
+
+    goal_state: tuple[str, int] | None = None
+
+    while heap:
+        g, _pri, z, t = heapq.heappop(heap)
+        state = (z, t)
+        if state not in g_best or g != g_best[state]:
+            continue
+        if z == end_zone:
+            goal_state = state
+            break
+
+        if t + 1 <= max_time:
+            nt = t + 1
+            nstate = (z, nt)
+            if ledger.can_occupy_zone_at(z, t):
+                ng = g + 1
+                if ng < g_best.get(nstate, inf):
+                    g_best[nstate] = ng
+                    came_from[nstate] = state
+                    push(ng, z, nt)
+
+        for nb in _neighbors(connections, z):
+            try:
+                if not movement.is_passable(nb):
+                    continue
+            except RoutingCostsError:
+                continue
+            dt = movement.simulation_turn_weight(nb)
+            if dt <= 0:
+                continue
+            t_end = t + dt
+            if t_end > max_time:
+                continue
+            if not ledger.can_move(z, nb, t, t_end):
+                continue
+            nstate = (nb, t_end)
+            ng = g + dt
+            if ng < g_best.get(nstate, inf):
+                g_best[nstate] = ng
+                came_from[nstate] = state
+                push(ng, nb, t_end)
+
+    if goal_state is None:
+        return None
+
+    chain_rev: list[tuple[str, int]] = []
+    cur = goal_state
+    while True:
+        chain_rev.append(cur)
+        if cur == start_state:
+            break
+        cur = came_from[cur]
+    timed_states = list(reversed(chain_rev))
+
+    zone_path = [zt[0] for zt in timed_states]
+
+    return (zone_path, timed_states)
+
+
+def planned_total_enter_cost(
+    movement: ZoneMovementModel,
+    zone_path: list[str],
+) -> float:
+    """Sum enter costs for real moves; consecutive duplicate zones count as 1 turn wait."""
+    if not zone_path:
+        return 0.0
+    total = 0.0
+    prev = zone_path[0]
+    for z in zone_path[1:]:
+        if z == prev:
+            total += 1.0
+        else:
+            total += movement.enter_cost(z)
+        prev = z
+    return total

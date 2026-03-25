@@ -1,9 +1,12 @@
 from __future__ import annotations
-from dataclasses import dataclass
+import math
 from math import hypot, inf
 import heapq
+
+from dataclasses import dataclass
+
 from game import GameWorld
-from parser import ZoneTypes
+from routing_costs import RoutingCostsError, ZoneMovementModel
 
 
 class PathfindingError(Exception):
@@ -15,18 +18,20 @@ class PathfindingError(Exception):
 class PriorityState:
     """Priority queue entry for the A* open set.
 
-    Ordering is lexicographic (because ``order=True``):
-    1) ``f_score`` (lowest first),
-    2) ``h_score`` (tie-break),
-    3) ``zone`` (deterministic final tie-break).
+    Ordering is lexicographic (dataclass order=True):
+    1) f_score (lowest first),
+    2) tie_priority (0 = priority zone, preferred per subject VII.1),
+    3) h_score,
+    4) zone name.
 
     A* notation:
-    - ``g_score``: known cost from start to current zone.
-    - ``h_score``: heuristic estimate from current zone to goal.
-    - ``f_score``: total estimated cost, ``f = g + h``.
+    - g_score: known cost from start to current zone.
+    - h_score: heuristic estimate from current zone to goal.
+    - f_score: total estimated cost, f = g + h.
     """
 
     f_score: float
+    tie_priority: int
     h_score: float
     zone: str
 
@@ -40,51 +45,69 @@ class Heuristic:
         return hypot(zone_one[0] - zone_two[0], zone_one[1] - zone_two[1])
 
 
-# Excplicit check isn't always bad, it is what it is
-# "Key from dicts of A* 24.03.2026"
-
-
 class AStar:
     """A* pathfinder over parsed zones/connections graph."""
 
-    def __init__(self, game_world: GameWorld) -> None:
-        self.game_world = game_world
+    def __init__(
+        self,
+        game_world: GameWorld,
+        movement: ZoneMovementModel | None = None,
+    ) -> None:
         self.zones = game_world.zones
         self.connections = game_world.connections
+        self._movement = movement or ZoneMovementModel(game_world.zones)
 
     def _validate_zone_name(self, zone_name: str) -> None:
         if zone_name not in self.zones:
             raise PathfindingError(f"Zone '{zone_name}' is not present")
 
-    def _get_zone_type(self, zone_name: str) -> ZoneTypes:
-        """Extract zone type from metadata, defaulting to NORMAL."""
-        zone = self.zones.get(zone_name)
-        if zone is None:
-            raise PathfindingError(f"Unknown zone '{zone_name}'")
-
-        metadata = zone.get("metadata")
-        if metadata is None:
-            return ZoneTypes.NORMAL
-
-        raw_zone = getattr(metadata, "zone", ZoneTypes.NORMAL)
-        if isinstance(raw_zone, ZoneTypes):
-            return raw_zone
-        return ZoneTypes(str(raw_zone))
-
     def _movement_cost(self, zone_name: str) -> float:
-        """Return the movement cost for entering a zone."""
-        zone_type = self._get_zone_type(zone_name)
-        if zone_type == ZoneTypes.BLOCKED:
-            return inf
-        return zone_type.cost
+        try:
+            return self._movement.enter_cost(zone_name)
+        except RoutingCostsError as e:
+            raise PathfindingError(str(e)) from e
 
     def _is_passable(self, zone_name: str) -> bool:
-        """Check if a zone is passable (not blocked)."""
-        zone_type = self._get_zone_type(zone_name)
-        return zone_type.is_passable
+        try:
+            return self._movement.is_passable(zone_name)
+        except RoutingCostsError as e:
+            raise PathfindingError(str(e)) from e
 
-    def find_path(self, start_zone: str, end_zone: str) -> list[str]:
-        """Return the shortest-cost path as a list of zone names."""
+    def _link_capacity(self, from_zone_name: str, to_zone_name: str) -> int:
+        block = self.connections.get(from_zone_name)
+        if block is None:
+            return 0
+        meta = block.get("metadata", {}).get(to_zone_name)
+        if meta is None:
+            return 1
+        return max(1, getattr(meta, "max_link_capacity", 1))
+
+    def _zone_max_drones(self, zone_name: str) -> int:
+        zone = self.zones.get(zone_name)
+        if zone is None:
+            return 1
+        meta = zone.get("metadata")
+        if meta is None:
+            return 1
+        return max(1, getattr(meta, "max_drones", 1))
+
+    def find_path(
+        self,
+        start_zone: str,
+        end_zone: str,
+        *,
+        link_path_counts: dict[frozenset[str], int] | None = None,
+        zone_route_counts: dict[str, int] | None = None,
+        exempt_capacity_zones: frozenset[str] | None = None,
+    ) -> list[str]:
+        """Return the lowest-cost path.
+
+        link_path_counts: planned-path count per unordered zone pair; A* rejects a step when
+        the count reaches that connection's max_link_capacity.
+        zone_route_counts: planned-path count per zone; A* rejects entering a neighbor when
+        the count reaches that zone's max_drones, except for names in exempt_capacity_zones
+        (start hub and end hub are passed in from the armada).
+        """
         self._validate_zone_name(start_zone)
         self._validate_zone_name(end_zone)
 
@@ -103,37 +126,71 @@ class AStar:
         g_score[start_zone] = 0.0
 
         h_start = self._heuristic(start_zone, end_zone)
+        start_tie = 0 if self._movement.is_priority(start_zone) else 1
 
-        heapq.heappush(open_heap, PriorityState(h_start, h_start, start_zone))
+        heapq.heappush(
+            open_heap,
+            PriorityState(h_start, start_tie, h_start, start_zone),
+        )
         closed_set: set[str] = set()
 
         while open_heap:
-            current = heapq.heappop(open_heap).zone
-            if current in closed_set:
+            expanded_zone_name = heapq.heappop(open_heap).zone
+            if expanded_zone_name in closed_set:
                 continue
 
-            if current == end_zone:
+            if expanded_zone_name == end_zone:
                 return self._reconstruct_path(came_from, end_zone)
 
-            closed_set.add(current)
+            closed_set.add(expanded_zone_name)
 
-            for neighbor in self._neighbors(current):
-                if neighbor in closed_set:
+            for adjacent_zone_name in self._neighbors(expanded_zone_name):
+                if adjacent_zone_name in closed_set:
                     continue
-                if not self._is_passable(neighbor):
-                    continue
-
-                candidate_g = g_score[current] + self._movement_cost(neighbor)
-                if candidate_g >= g_score[neighbor]:
+                if not self._is_passable(adjacent_zone_name):
                     continue
 
-                came_from[neighbor] = current
-                g_score[neighbor] = candidate_g
-                h_neighbor = self._heuristic(neighbor, end_zone)
+                if link_path_counts is not None:
+                    undirected_link_key = frozenset(
+                        {expanded_zone_name, adjacent_zone_name}
+                    )
+                    link_capacity = self._link_capacity(
+                        expanded_zone_name,
+                        adjacent_zone_name,
+                    )
+                    if link_path_counts.get(undirected_link_key, 0) >= link_capacity:
+                        continue
+
+                if (
+                    zone_route_counts is not None
+                    and exempt_capacity_zones is not None
+                    and adjacent_zone_name not in exempt_capacity_zones
+                ):
+                    zone_capacity = self._zone_max_drones(adjacent_zone_name)
+                    if (
+                        zone_route_counts.get(adjacent_zone_name, 0)
+                        >= zone_capacity
+                    ):
+                        continue
+
+                candidate_g = g_score[expanded_zone_name] + self._movement_cost(
+                    adjacent_zone_name
+                )
+                if candidate_g >= g_score[adjacent_zone_name]:
+                    continue
+
+                came_from[adjacent_zone_name] = expanded_zone_name
+                g_score[adjacent_zone_name] = candidate_g
+                h_neighbor = self._heuristic(adjacent_zone_name, end_zone)
                 f_neighbor = candidate_g + h_neighbor
+                nb_tie = (
+                    0 if self._movement.is_priority(adjacent_zone_name) else 1
+                )
                 heapq.heappush(
                     open_heap,
-                    PriorityState(f_neighbor, h_neighbor, neighbor),
+                    PriorityState(
+                        f_neighbor, nb_tie, h_neighbor, adjacent_zone_name
+                    ),
                 )
 
         raise PathfindingError(
@@ -161,19 +218,13 @@ class AStar:
             raise PathfindingError(
                 f"Wrong coordinates '{coordinates} of the zone: '{zone_name}'"
             )
-        first, second = coordinates
-        if not isinstance(first, int) or not isinstance(second, int):
+        grid_x, grid_y = coordinates
+        if not isinstance(grid_x, int) or not isinstance(grid_y, int):
             raise PathfindingError(
                 f"Zone '{zone_name}' has invalid coordinates {coordinates}"
             )
 
-        return (first, second)
-
-    def _find_hub_by_type(self, hub_type: str) -> str:
-        for name, zone in self.zones.items():
-            if zone.get("hub_type") == hub_type:
-                return name
-        raise PathfindingError(f"Hub type '{hub_type}' was not found")
+        return (grid_x, grid_y)
 
     @staticmethod
     def _reconstruct_path(
@@ -185,3 +236,45 @@ class AStar:
             path.append(came_from[path[-1]])
         path.reverse()
         return path
+
+
+@dataclass(frozen=True)
+class PlannedRoute:
+    zone_names: list[str]
+    total_enter_cost: float
+
+
+class RoutePlanner:
+    """Planning API: returns a route object; A* is the implementation."""
+
+    def __init__(self, game_world: GameWorld) -> None:
+        self._movement = ZoneMovementModel(game_world.zones)
+        self._astar = AStar(game_world, self._movement)
+
+    @property
+    def movement_model(self) -> ZoneMovementModel:
+        return self._movement
+
+    def plan(
+        self,
+        start_zone: str,
+        end_zone: str,
+        *,
+        link_path_counts: dict[frozenset[str], int] | None = None,
+        zone_route_counts: dict[str, int] | None = None,
+        exempt_capacity_zones: frozenset[str] | None = None,
+    ) -> PlannedRoute:
+        zone_names = self._astar.find_path(
+            start_zone,
+            end_zone,
+            link_path_counts=link_path_counts,
+            zone_route_counts=zone_route_counts,
+            exempt_capacity_zones=exempt_capacity_zones,
+        )
+        total_enter = math.fsum(
+            self._movement.enter_cost(z) for z in zone_names[1:]
+        )
+        return PlannedRoute(
+            zone_names=list(zone_names),
+            total_enter_cost=total_enter,
+        )

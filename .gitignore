@@ -14,3 +14,6 @@ uv.lock
 .idea
 .mypy_cache
 tests
+.cursor
+.gitignore
+*.md
