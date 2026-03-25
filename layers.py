@@ -6,6 +6,7 @@ from typing import Any, cast
 from collections.abc import Mapping
 import pygame
 from assets import AssetManager
+from drone import Drone
 from pygame.surface import Surface
 
 SAND_COLOR = (194, 178, 128)
@@ -128,7 +129,9 @@ class MapLayer(RenderLayer):
                 continue
 
             x, y = zone["coordinates"]
-            for neighbor in context.connections[name].get("connections", {}):
+            for neighbor in context.connections.get(name, {}).get(
+                "connections", {}
+            ):
                 if neighbor not in context.zones:
                     raise LayerRenderError(
                         f"Neighbor '{neighbor}' referenced in connections but"
@@ -209,9 +212,9 @@ class FlagsLayer(RenderLayer):
             current_time=context.current_time,
             sprite=context.assets.ua_flag,
         )
-        current_russian_flag = self.get_current_sprite(
+        current_campfire = self.get_current_sprite(
             current_time=context.current_time,
-            sprite=context.assets.russia_flag,
+            sprite=context.assets.campfire,
         )
 
         for zone in context.zones.values():
@@ -226,28 +229,113 @@ class FlagsLayer(RenderLayer):
                 )
             if zone.get("hub_type") == "end_hub":
                 screen.blit(
-                    current_russian_flag,
+                    current_campfire,
                     (
-                        x * tile_w + context.offset_x + 7,
-                        y * tile_w + context.offset_y - 65,
+                        x * tile_w + context.offset_x - 1,
+                        y * tile_w + context.offset_y - 60,
                     ),
                 )
 
 
 class DronesLayer(RenderLayer):
+    TEST_DRONE_SPEED = 100
+    TEST_GOAL_HUB = "end_hub"
+
+    def __init__(self) -> None:
+        self.test_drone: Drone | None = None
+        self.last_time_ms: int | None = None
+        self.start_pixel: tuple[float, float] | None = None
+        self.end_pixel: tuple[float, float] | None = None
+        self.current_target: tuple[float, float] | None = None
+
     def render(self, screen: Surface, context: RenderContext) -> None:
+        self._initialize_test_run(context)
+
+        if (
+            self.test_drone is None
+            or self.start_pixel is None
+            or self.end_pixel is None
+            or self.current_target is None
+        ):
+            return
+
+        if self.last_time_ms is None:
+            delta_seconds = 0.0
+        else:
+            delta_seconds = max(
+                0.0,
+                (context.current_time - self.last_time_ms) / 1000,
+            )
+        self.last_time_ms = context.current_time
+
+        current_x, current_y = self.test_drone.pixel_position
+        target_x, target_y = self.current_target
+        dx = target_x - current_x
+        dy = target_y - current_y
+        context.assets.drone_sprite.set_orientation_from_delta(dx, dy)
+
+        reached_target = self.test_drone.move_towards(
+            target_position=self.current_target,
+            speed_px_per_sec=self.TEST_DRONE_SPEED,
+            delta_seconds=delta_seconds,
+        )
+
+        if reached_target:
+            self.current_target = (
+                self.end_pixel
+                if self.current_target == self.start_pixel
+                else self.start_pixel
+            )
+
+        drone_frame = context.assets.drone_sprite.get_drone_frame(
+            context.current_time
+        )
+        screen.blit(drone_frame, self.test_drone.pixel_position)
+
+    def _initialize_test_run(self, context: RenderContext) -> None:
+        if self.test_drone is not None:
+            return
+
+        start_name, start_pixel = self._hub_pixel(context, "start_hub")
+        _, end_pixel = self._hub_pixel(context, self.TEST_GOAL_HUB)
+
+        if start_name is None or start_pixel is None or end_pixel is None:
+            return
+
+        self.start_pixel = start_pixel
+        self.end_pixel = end_pixel
+        self.current_target = end_pixel
+        self.test_drone = Drone(
+            current_zone=start_name,
+            pixel_position=start_pixel,
+        )
+
+    def _hub_pixel(
+        self,
+        context: RenderContext,
+        hub_ref: str,
+    ) -> tuple[str | None, tuple[float, float] | None]:
+        """Find hub by zone name first, then by unique hub_type."""
         tile_w = context.assets.island.width
-        for zone in context.zones.values():
-            x = zone["coordinates"][0] * tile_w
-            y = zone["coordinates"][1] * tile_w
-            if zone.get("hub_type") == "start_hub":
-                drone = context.assets.drone_sprite.get_drone_frame(
-                    context.current_time
-                )
-                screen.blit(
-                    drone,
-                    (x + context.offset_x, y + context.offset_y - 40),
-                )
+
+        zone = context.zones.get(hub_ref)
+        if zone is not None:
+            x = zone["coordinates"][0] * tile_w + context.offset_x
+            y = zone["coordinates"][1] * tile_w + context.offset_y - 40
+            return hub_ref, (float(x), float(y))
+
+        matches: list[tuple[str, dict[str, Any]]] = []
+        for zone_name, current_zone in context.zones.items():
+            if current_zone.get("hub_type") == hub_ref:
+                matches.append((zone_name, current_zone))
+
+        if len(matches) != 1:
+            return None, None
+
+        zone_name, matched_zone = matches[0]
+        x = matched_zone["coordinates"][0] * tile_w + context.offset_x
+        y = matched_zone["coordinates"][1] * tile_w + context.offset_y - 40
+        return zone_name, (float(x), float(y))
 
 
 class TextLayer(RenderLayer):
@@ -299,7 +387,7 @@ class HUDLayer(RenderLayer):
 
 class MapLegendLayer(RenderLayer):
     BOARD_SIZE = 3
-    ICON_SIZE = 32
+    ICON_SIZE = 36
 
     def __init__(
         self,
@@ -346,7 +434,7 @@ class MapLegendLayer(RenderLayer):
             (
                 self.get_current_sprite(
                     current_time=context.current_time,
-                    sprite=context.assets.russia_flag,
+                    sprite=context.assets.campfire,
                 ),
                 "End hub",
             ),

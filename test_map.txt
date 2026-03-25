@@ -1,7 +1,7 @@
-nb_drones: 51
+nb_drones: 0
 
 start_hub: hub 1 0 [color=green]
-end_hub: goal 10 10 [color=yellow]
+end_hub: goal 1 15 [color=yellow]
 hub: roof1 3 4 [zone=restricted color=red]
 hub: roof2 6 2 [zone=normal color=blue]
 hub: corridorA 4 3 [zone=priority color=green max_drones=2]

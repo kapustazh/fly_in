@@ -17,7 +17,7 @@ class AssetManager:
         self.icon: Sprite
         self.island: Sprite
         self.obstacle: Sprite
-        self.russia_flag: AnimatedSprite
+        self.campfire: AnimatedSprite
         self.ua_flag: AnimatedSprite
         self.drone_sprite: DroneSprite
         self.wood_font: Font
@@ -52,11 +52,11 @@ class AssetManager:
                     asset_path("sprites", "obstacle.png")
                 ).convert_alpha()
             )
-            self.russia_flag = AnimatedSprite(
+            self.campfire = AnimatedSprite(
                 surface=pygame.image.load(
-                    asset_path("sprites", "flag_russia.png")
+                    asset_path("sprites", "campfire.png")
                 ).convert_alpha(),
-                num_frames=5,
+                num_frames=6,
             )
             self.ua_flag = AnimatedSprite(
                 surface=pygame.image.load(
@@ -91,7 +91,7 @@ class AssetManager:
 
     def _prepare_sprites(self) -> None:
         self.water.prepare_frames(scale=2.0)
-        self.russia_flag.prepare_frames(scale=1.5)
+        self.campfire.prepare_frames(scale=1.4)
         self.ua_flag.prepare_frames(scale=1.5)
         self.obstacle.upscale(scale=1.5)
         self.island.get_upscaled_from_mask(48, 48, 16, 16, factor=2.5)
