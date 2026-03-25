@@ -17,10 +17,10 @@ from layers import (
     HUDLayer,
     ZoneTooltipLayer,
 )
-from pygame.surface import Surface
 from game import GameWorld
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+from pygame.surface import Surface  # noqa: E402
 import pygame  # noqa: E402
 
 
@@ -38,7 +38,9 @@ class Renderer:
     ) -> None:
         self.zones = game_world.zones
         self.connections = game_world.connections
+        self.game_world = game_world
         self.assets = assets
+        self.zones_pixel_pos: dict[str, tuple[float, float]] = {}
         self.screen: Surface
         self.clock: pygame.time.Clock
         self.running = True
@@ -68,10 +70,21 @@ class Renderer:
         self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
         self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
 
+    # 40 - offeset to make it a bit heigher
+    def _compute_zones_pixel_pos(self) -> None:
+        """Pre-compute pixel positions for all zones."""
+        tile_w = self.assets.island.width
+        for zone_name, zone in self.zones.items():
+            x, y = zone["coordinates"]
+            px = float(x * tile_w + self.offset_x)
+            py = float(y * tile_w + self.offset_y - 40)
+            self.zones_pixel_pos[zone_name] = (px, py)
+
     def _build_context(self) -> RenderContext:
         return RenderContext(
             zones=self.zones,
             connections=self.connections,
+            zones_pixel_pos=self.zones_pixel_pos,
             assets=self.assets,
             current_time=self.current_time,
             offset_x=self.offset_x,
@@ -89,6 +102,7 @@ class Renderer:
             print(e)
             sys.exit(1)
         self._compute_offset()
+        self._compute_zones_pixel_pos()
         try:
             while self.running:
                 for event in pygame.event.get():
@@ -151,6 +165,9 @@ class InformationManager:
     def run(self) -> None:
         self.parse_input()
         assets = AssetManager()
+        # import pprint
+
+        # pprint.pprint(self._zones)
         game_word = GameWorld(
             zones=self._zones,
             connections=self._connections,

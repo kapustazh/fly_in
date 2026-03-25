@@ -40,6 +40,10 @@ class Heuristic:
         return hypot(zone_one[0] - zone_two[0], zone_one[1] - zone_two[1])
 
 
+# Excplicit check isn't always bad, it is what it is
+# "Key from dicts of A* 24.03.2026"
+
+
 class AStar:
     """A* pathfinder over parsed zones/connections graph."""
 

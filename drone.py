@@ -60,7 +60,7 @@ class DroneSprite(AnimatedSprite):
         }
         frames = frames_by_orientation.get(
             self.orientation_status,
-            self.frames_right_down,
+            self.frames,
         )
         return frames[(current_time // animation) % len(frames)]
 
@@ -125,7 +125,9 @@ class Drone:
         speed_px_per_sec: float,
         delta_seconds: float,
     ) -> bool:
-        """Move toward a target position and return True if reached."""
+        """Move toward a target position
+        and return True if reached the goal.
+        """
         current_x, current_y = self.pixel_position
         target_x, target_y = target_position
 
@@ -147,3 +149,24 @@ class Drone:
             current_y + dy * ratio,
         )
         return False
+
+
+# hell yea, back to the armada
+class DroneArmada:
+    def __init__(self, context: RenderContext) -> None:
+        self.context = context
+        self.drones: list[Drone]
+
+    def create_drone(self, start_zone_name: str = "start") -> Drone:
+        pixel_position = self.context.zones_pixel_pos.get(start_zone_name)
+        if pixel_position is None:
+            raise ValueError(f"No pixel position for zone '{start_zone_name}'")
+
+        drone = Drone(
+            current_zone=start_zone_name,
+            pixel_position=pixel_position,
+        )
+        return drone
+
+    def create_an_armada(self, count: int) -> None:
+        self.drones = [self.create_drone() for _ in range(count)]
