@@ -1,4 +1,4 @@
-"""Phase 6 smoke tests: routing costs and PlannedRoute totals (no pygame)."""
+"""Phase 6 smoke tests: route planning and fleet timing (no pygame)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,10 @@ from fleet_planner import FleetRoutePlanner
 from game import GameWorld
 from parser import InputParser
 from pathfinding import RoutePlanner
-from routing_costs import ZoneMovementModel
 
 
-class TestPlannedRouteCost(unittest.TestCase):
-    def test_total_enter_cost_matches_zone_sum(self) -> None:
+class TestRoutePlanning(unittest.TestCase):
+    def test_planned_route_connects_start_to_end_hub(self) -> None:
         root = Path(__file__).resolve().parent
         parser = InputParser()
         parser.parse_lines(str(root / "test_map.txt"))
@@ -26,9 +25,9 @@ class TestPlannedRouteCost(unittest.TestCase):
         )
         planner = RoutePlanner(world)
         route = planner.plan(world.start_zone_name, world.end_zone_name)
-        model = ZoneMovementModel(world.zones)
-        expected = sum(model.enter_cost(z) for z in route.zone_names[1:])
-        self.assertAlmostEqual(route.total_enter_cost, expected)
+        self.assertGreaterEqual(len(route.zone_names), 1)
+        self.assertEqual(route.zone_names[0], world.start_zone_name)
+        self.assertEqual(route.zone_names[-1], world.end_zone_name)
 
     def test_timed_fleet_planning_no_false_fallback(self) -> None:
         root = Path(__file__).resolve().parent
@@ -41,13 +40,14 @@ class TestPlannedRouteCost(unittest.TestCase):
             num_drones=parser.number_of_drones,
         )
         planner = RoutePlanner(world)
-        fleet = FleetRoutePlanner(planner, world)
         drone = SimpleNamespace(
             current_zone=world.start_zone_name,
             end_zone=world.end_zone_name,
         )
         hubs = frozenset({world.start_zone_name, world.end_zone_name})
-        result = fleet.plan_all_drones(
+        result = FleetRoutePlanner.plan_all_drones(
+            planner,
+            world,
             [drone],
             capacity_exempt_hub_zone_names=hubs,
         )

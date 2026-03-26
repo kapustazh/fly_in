@@ -17,17 +17,10 @@ class DroneNavigationContext:
     layout: ZoneLayout
     movement_model: ZoneMovementModel
 
-    def pixel_center_for_zone_name(
-        self, zone_name: str
-    ) -> tuple[float, float]:
-        return self.layout.pixel_center_for_zone_name(zone_name)
-
-    def simulation_turn_weight_for_entering_zone(self, zone_name: str) -> int:
-        return self.movement_model.simulation_turn_weight(zone_name)
-
 
 class Drone:
-    """Follows a planned zone path; moves in pixel space between zone centers."""
+    """Follows a planned zone path; moves in pixel space between zone
+    centers."""
 
     def __init__(
         self,
@@ -54,9 +47,10 @@ class Drone:
         navigation_context: DroneNavigationContext,
         planned_route: PlannedRoute,
     ) -> None:
-        """Start following a path computed by the armada (capacity-aware planning)."""
+        """Start following a path from armada (capacity-aware planning)."""
         self.zone_path = planned_route.zone_names
-        self.pixel_position = navigation_context.pixel_center_for_zone_name(
+        layout = navigation_context.layout
+        self.pixel_position = layout.pixel_center_for_zone_name(
             self.zone_path[0]
         )
         self._wait_remaining = 0.0
@@ -68,11 +62,10 @@ class Drone:
         self,
         navigation_context: DroneNavigationContext,
     ) -> tuple[float, float]:
-        """Stable screen-space direction for sprite facing along the current path leg.
+        """Stable screen-space direction for sprite facing along path leg.
 
-        Uses zone-center to zone-center (skipping repeated ``current_zone`` entries for
-        1-turn waits) so heading does not drop to (0,0) while waiting or at duplicate
-        path steps — that previously forced an unrotated NE frame and looked random.
+        Zone-center to zone-center, skipping repeated ``current_zone`` for
+        1-turn waits, so heading does not drop to (0,0) while waiting.
         """
         return self._facing_leg_screen_delta(navigation_context)
 
@@ -89,16 +82,18 @@ class Drone:
             i += 1
         if i >= len(self.zone_path):
             if len(self.zone_path) >= 2:
-                a = navigation_context.pixel_center_for_zone_name(
+                a = navigation_context.layout.pixel_center_for_zone_name(
                     self.zone_path[-2]
                 )
-                b = navigation_context.pixel_center_for_zone_name(
+                b = navigation_context.layout.pixel_center_for_zone_name(
                     self.zone_path[-1]
                 )
                 return (b[0] - a[0], b[1] - a[1])
             return (1.0, 0.0)
-        dest = navigation_context.pixel_center_for_zone_name(self.zone_path[i])
-        origin = navigation_context.pixel_center_for_zone_name(
+        dest = navigation_context.layout.pixel_center_for_zone_name(
+            self.zone_path[i]
+        )
+        origin = navigation_context.layout.pixel_center_for_zone_name(
             self.current_zone
         )
         return (dest[0] - origin[0], dest[1] - origin[1])
@@ -144,7 +139,7 @@ class Drone:
         wait_at_node_sec: float,
     ) -> None:
         next_zone_on_path = self.zone_path[self._next_zone_index]
-        # Repeated zone name = one simulation turn "stay" (timed fleet planning).
+        # Repeated zone name = one-turn "stay" (timed fleet planning).
         if next_zone_on_path == self.current_zone:
             self.cumulative_simulation_turns += 1
             self._next_zone_index += 1
@@ -153,7 +148,7 @@ class Drone:
                 self._arrived = True
             return
 
-        goal_pixel = navigation_context.pixel_center_for_zone_name(
+        goal_pixel = navigation_context.layout.pixel_center_for_zone_name(
             next_zone_on_path
         )
         reached = self.move_towards(
@@ -162,11 +157,8 @@ class Drone:
         if not reached:
             return
         self.current_zone = next_zone_on_path
-        enter_turn_weight = (
-            navigation_context.simulation_turn_weight_for_entering_zone(
-                next_zone_on_path
-            )
-        )
+        mm = navigation_context.movement_model
+        enter_turn_weight = mm.simulation_turn_weight(next_zone_on_path)
         self.cumulative_simulation_turns += enter_turn_weight
         self._next_zone_index += 1
         if self._next_zone_index >= len(self.zone_path):
@@ -209,13 +201,11 @@ class Drone:
 
 
 class DroneArmada:
-    """Builds drones from GameWorld, runs launch_armada once, then update_all."""
+    """Builds drones from GameWorld; launch_armada once, then update_all."""
 
     def __init__(self) -> None:
         self.drones: list[Drone] = []
         self._navigation_context: DroneNavigationContext | None = None
-        self._game_world: GameWorld | None = None
-        self._route_planner: RoutePlanner | None = None
         self._launched = False
 
     def create_an_armada(
@@ -223,13 +213,10 @@ class DroneArmada:
         drone_count: int,
         game_world: GameWorld,
         navigation_context: DroneNavigationContext,
-        route_planner: RoutePlanner,
     ) -> None:
         self._navigation_context = navigation_context
-        self._game_world = game_world
-        self._route_planner = route_planner
         self._launched = False
-        start_hub_pixel = navigation_context.pixel_center_for_zone_name(
+        start_hub_pixel = navigation_context.layout.pixel_center_for_zone_name(
             game_world.start_zone_name
         )
         self.drones = []
@@ -251,34 +238,30 @@ class DroneArmada:
                 )
             )
 
-    def launch_armada(self) -> None:
-        if (
-            self._navigation_context is None
-            or self._launched
-            or self._game_world is None
-            or self._route_planner is None
-        ):
+    def launch_armada(
+        self, game_world: GameWorld, route_planner: RoutePlanner
+    ) -> None:
+        if self._navigation_context is None or self._launched:
             return
         from fleet_planner import FleetRoutePlanner
 
         capacity_exempt_hub_zone_names = frozenset(
             {
-                self._game_world.start_zone_name,
-                self._game_world.end_zone_name,
+                game_world.start_zone_name,
+                game_world.end_zone_name,
             }
         )
-        fleet_planner = FleetRoutePlanner(
-            self._route_planner,
-            self._game_world,
-        )
-        result = fleet_planner.plan_all_drones(
+        result = FleetRoutePlanner.plan_all_drones(
+            route_planner,
+            game_world,
             self.drones,
             capacity_exempt_hub_zone_names=capacity_exempt_hub_zone_names,
         )
         if result.used_capacity_fallback:
             print(
-                "[DroneArmada] The fleet cannot all be routed under link and zone limits "
-                "(often a single narrow exit). Replanning every drone without those limits; "
+                "[DroneArmada] The fleet cannot all be routed under "
+                "link and zone limits (often a single narrow exit). "
+                "Replanning every drone without those limits; "
                 "paths may overlap."
             )
 
@@ -305,15 +288,8 @@ class DroneArmada:
                 wait_at_node_sec,
             )
 
-    def sprite_render_movement_delta(
-        self, drone: Drone
-    ) -> tuple[float, float]:
-        if self._navigation_context is None:
-            return (0.0, 0.0)
-        return drone.sprite_render_movement_delta(self._navigation_context)
-
     def synchronized_turn_count(self) -> int:
-        """Min cumulative simulation turns among active drones (weighted zone costs)."""
+        """Min cumulative turns among active drones (weighted zone costs)."""
         if not self.drones:
             return 0
         active = [d for d in self.drones if not d.has_arrived]

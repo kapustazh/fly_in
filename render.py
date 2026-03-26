@@ -2,7 +2,7 @@ from parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
 import os
-from typing import Dict, Any
+from typing import Any, Dict
 from collections.abc import Mapping
 from assets import AssetManager, AssetError
 from layers import (
@@ -45,6 +45,7 @@ class Renderer:
         self.assets = assets
         self.drone_armada = DroneArmada()
         self._zone_layout: ZoneLayout | None = None
+        self._drone_navigation_context: DroneNavigationContext | None = None
         self.screen: Surface
         self.clock: pygame.time.Clock
         self.running = True
@@ -76,15 +77,16 @@ class Renderer:
         self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
         self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
 
-    # Shift zone centers up by 40 px in Y.
     def _build_zone_layout(self) -> None:
-        """Pre-compute pixel centers and offsets for all zones."""
+        """Pixel target per zone: island tile center in screen space."""
         tile_w = self.assets.island.width
+        half_w = self.assets.island.width * 0.5
+        half_h = self.assets.island.height * 0.5
         pixel_center_by_zone: dict[str, tuple[float, float]] = {}
         for zone_name, zone in self.zones.items():
             x, y = zone["coordinates"]
-            px = float(x * tile_w + self.offset_x)
-            py = float(y * tile_w + self.offset_y - 40)
+            px = float(x * tile_w + self.offset_x + half_w)
+            py = float(y * tile_w + self.offset_y + half_h)
             pixel_center_by_zone[zone_name] = (px, py)
         self._zone_layout = ZoneLayout(
             pixel_center_by_zone=pixel_center_by_zone,
@@ -94,6 +96,7 @@ class Renderer:
 
     def _build_context(self) -> RenderContext:
         assert self._zone_layout is not None
+        assert self._drone_navigation_context is not None
         return RenderContext(
             zones=self.zones,
             connections=self.connections,
@@ -104,12 +107,13 @@ class Renderer:
             height=self.HEIGHT,
             mouse_position=pygame.mouse.get_pos(),
             drone_armada=self.drone_armada,
+            navigation_context=self._drone_navigation_context,
         )
 
     def _spawn_armada(self) -> None:
         assert self._zone_layout is not None
         route_planner = RoutePlanner(self._game_world)
-        drone_navigation_context = DroneNavigationContext(
+        self._drone_navigation_context = DroneNavigationContext(
             layout=self._zone_layout,
             movement_model=route_planner.movement_model,
         )
@@ -117,10 +121,9 @@ class Renderer:
         self.drone_armada.create_an_armada(
             drone_count=self._game_world.num_drones,
             game_world=self._game_world,
-            navigation_context=drone_navigation_context,
-            route_planner=route_planner,
+            navigation_context=self._drone_navigation_context,
         )
-        self.drone_armada.launch_armada()
+        self.drone_armada.launch_armada(self._game_world, route_planner)
 
     def _restart_simulation(self) -> None:
         for layer in self.layers:
@@ -206,6 +209,8 @@ class InformationManager:
         # import pprint
 
         # pprint.pprint(self._zones)
+        # pprint.pprint(self._connections)
+        # pprint.pprint(self._num_drones)
         game_world = GameWorld.from_parsed_map(
             zones=self._zones,
             connections=self._connections,
@@ -215,5 +220,4 @@ class InformationManager:
 
 
 if __name__ == "__main__":
-    info_manager = InformationManager()
-    info_manager.run()
+    InformationManager().run()

@@ -8,7 +8,7 @@ import pygame
 from assets import AssetManager
 from enum import Enum
 
-from drone import DroneArmada
+from drone import DroneArmada, DroneNavigationContext
 from map_layout import ZoneLayout
 from pygame.surface import Surface
 
@@ -31,6 +31,7 @@ class RenderContext:
     connections: Mapping[str, dict[str, Any]]
     layout: ZoneLayout
     drone_armada: DroneArmada
+    navigation_context: DroneNavigationContext
     assets: AssetManager
     current_time: int
     width: int
@@ -249,25 +250,26 @@ class FlagsLayer(RenderLayer):
 
 class DronesLayer(RenderLayer):
     DRONE_SPEED_PX_PER_SEC = 72.0
-    WAIT_AT_NODE_SEC = 0.42
+    WAIT_AT_NODE_SEC = 0.4
+
+    # Nudge sprite down so it sits on tile (layout uses tile centers).
+    DRONE_BLIT_ANCHOR_DOWN_PX = 0
+    # Nudge right so rotated sprite aligns with zone hubs.
+    DRONE_DRAW_OFFSET_X = 0
+
+    def __init__(self) -> None:
+        self.last_time_ms: int | None = None
 
     def reset_frame_clock(self) -> None:
         """Clear delta-time state (e.g. after restarting the simulation)."""
         self.last_time_ms = None
 
-    # Renderer shifts zone centers up 40 px; this pulls drone sprites down onto the tile.
-    DRONE_BLIT_ANCHOR_DOWN_PX = 52
-    # Nudge drawn position right so rotated sprite center lines up with zone hubs.
-    DRONE_DRAW_OFFSET_X = 10
-
-    def __init__(self) -> None:
-        self.last_time_ms: int | None = None
-
     def render(self, screen: Surface, context: RenderContext) -> None:
-        if self.last_time_ms is None:
+        prev_ms = self.last_time_ms
+        if prev_ms is None:
             delta_seconds = 0.0
         else:
-            delta_seconds = (context.current_time - self.last_time_ms) / 1000.0
+            delta_seconds = (context.current_time - prev_ms) / 1000.0
         self.last_time_ms = context.current_time
 
         drone_armada = context.drone_armada
@@ -280,7 +282,7 @@ class DronesLayer(RenderLayer):
         sprite = context.assets.drone_sprite
         for drone in drone_armada.drones:
             movement_delta_x, movement_delta_y = (
-                drone_armada.sprite_render_movement_delta(drone)
+                drone.sprite_render_movement_delta(context.navigation_context)
             )
             frame = sprite.frame_for_vector(
                 movement_delta_x,
@@ -373,7 +375,7 @@ class MapLegendLayer(RenderLayer):
 
     @staticmethod
     def content_bottom_y(context: RenderContext, legend_y: int) -> int:
-        """Y coordinate just below the legend icon list (for HUD lines under the panel)."""
+        """Y just below legend icons (HUD lines under the panel)."""
         tile_w = context.assets.wood_tile.width
         return (
             legend_y
@@ -387,7 +389,6 @@ class MapLegendLayer(RenderLayer):
         x: int,
         y: int,
     ) -> None:
-        self.text: TextLayer
         self.x = x
         self.y = y
 
@@ -407,12 +408,11 @@ class MapLegendLayer(RenderLayer):
                 )
                 current_y += tile_w
             current_x += tile_w
-        self.text = TextLayer(
+        TextLayer(
             "MAP LEGEND",
             self.x + (self.BOARD_SIZE * context.assets.wood_tile.width) // 4,
             self.y,
-        )
-        self.text.render(screen, context)
+        ).render(screen, context)
 
     def _render_objects(self, screen: Surface, context: RenderContext) -> None:
         objects: list[tuple[Surface, str]] = [

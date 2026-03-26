@@ -1,19 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
 from game import GameWorld
-from pathfinding import PathfindingError, PlannedRoute, RoutePlanner
-from timed_pathfinding import (
-    TurnOccupancyLedger,
-    find_timed_path,
-    planned_total_enter_cost,
-)
+from pathfinding import PlannedRoute, RoutePlanner
+from timed_pathfinding import TimedPathfinder, TurnOccupancyLedger
 
 
 class DroneRouteEndpoints(Protocol):
-    """Minimal drone surface needed for fleet planning (avoids importing pygame)."""
+    """Minimal drone API for fleet planning (no pygame import)."""
 
     current_zone: str
     end_zone: str
@@ -28,34 +25,33 @@ class FleetPlanResult:
 
 
 class FleetRoutePlanner:
-    """Fleet routing with per-turn capacity (subject VII.2), not static route overlap."""
+    """Fleet routing with per-turn capacity (VII.2), not static overlap."""
 
-    def __init__(self, route_planner: RoutePlanner, game_world: GameWorld) -> None:
-        self._route_planner = route_planner
-        self._world = game_world
-
-    def _max_time_budget(self, num_drones: int) -> int:
-        nz = max(1, len(self._world.zones))
+    @staticmethod
+    def _max_time_budget(game_world: GameWorld, num_drones: int) -> int:
+        nz = max(1, len(game_world.zones))
         return min(15_000, 300 + num_drones * 250 + nz * 80)
 
+    @staticmethod
     def plan_all_drones(
-        self,
-        drones: list[DroneRouteEndpoints],
+        route_planner: RoutePlanner,
+        game_world: GameWorld,
+        drones: Sequence[DroneRouteEndpoints],
         *,
         capacity_exempt_hub_zone_names: frozenset[str],
     ) -> FleetPlanResult:
-        movement = self._route_planner.movement_model
+        movement = route_planner.movement_model
         ledger = TurnOccupancyLedger(
-            self._world.zones,
-            self._world.connections,
+            game_world.zones,
+            game_world.connections,
             exempt_zone_capacity=capacity_exempt_hub_zone_names,
         )
-        max_time = self._max_time_budget(len(drones))
+        max_time = FleetRoutePlanner._max_time_budget(game_world, len(drones))
         planned_routes: list[PlannedRoute] = []
 
         for drone in drones:
-            timed = find_timed_path(
-                self._world,
+            timed = TimedPathfinder.find(
+                game_world,
                 movement,
                 drone.current_zone,
                 drone.end_zone,
@@ -63,26 +59,20 @@ class FleetRoutePlanner:
                 max_time=max_time,
             )
             if timed is None:
-                return self._plan_all_without_capacity_limits(drones)
+                return FleetRoutePlanner._fallback(route_planner, drones)
             zone_path, timed_states = timed
             ledger.reserve_timed_state_chain(timed_states)
-            planned_routes.append(
-                PlannedRoute(
-                    zone_names=list(zone_path),
-                    total_enter_cost=planned_total_enter_cost(
-                        movement, zone_path
-                    ),
-                )
-            )
+            planned_routes.append(PlannedRoute(zone_names=list(zone_path)))
 
-        return FleetPlanResult(routes=planned_routes, used_capacity_fallback=False)
+        return FleetPlanResult(
+            routes=planned_routes, used_capacity_fallback=False
+        )
 
-    def _plan_all_without_capacity_limits(
-        self,
-        drones: list[DroneRouteEndpoints],
+    @staticmethod
+    def _fallback(
+        route_planner: RoutePlanner, drones: Sequence[DroneRouteEndpoints]
     ) -> FleetPlanResult:
-        planned_routes = [
-            self._route_planner.plan(drone.current_zone, drone.end_zone)
-            for drone in drones
+        routes = [
+            route_planner.plan(d.current_zone, d.end_zone) for d in drones
         ]
-        return FleetPlanResult(routes=planned_routes, used_capacity_fallback=True)
+        return FleetPlanResult(routes=routes, used_capacity_fallback=True)

@@ -15,5 +15,3 @@ uv.lock
 .mypy_cache
 tests
 .cursor
-.gitignore
-*.md
