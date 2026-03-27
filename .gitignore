@@ -3,7 +3,6 @@ __pycache__/*
 .venv/
 .pyc
 .vscode
-tests/
 .pytest_cache/
 .mlx/*
 .DS_Store
@@ -12,5 +11,4 @@ uv.lock
 .mypy_cache
 .python-version
 .idea
-.mypy_cache
-tests
+.cursor

@@ -1,3 +1,5 @@
+"""Composable draw passes (water, map, drones, HUD) and shared render context."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -8,37 +10,47 @@ import pygame
 from assets import AssetManager
 from enum import Enum
 
-# from drone import Drone
+from drone import DroneArmada, DroneNavigationContext
+from map_layout import ZoneLayout
 from pygame.surface import Surface
 
 
 # :D
 class Colors(Enum):
+    """Named colors shared by map drawing (e.g. bridge lines)."""
+
     SAND_COLOR = (194, 178, 128)
 
 
 class LayerRenderError(Exception):
+    """Raised when a layer cannot render (missing glyph, bad map data, etc.)."""
+
     def __init__(self, detail: str) -> None:
         super().__init__(f"Layer render error: {detail}")
 
 
 @dataclass
 class RenderContext:
+    """Drawing state: map graph, pixel layout, and simulation (armada)."""
+
     zones: Mapping[str, dict[str, Any]]
     connections: Mapping[str, dict[str, Any]]
-    zones_pixel_pos: dict[str, tuple[float, float]]
+    layout: ZoneLayout
+    drone_armada: DroneArmada
+    navigation_context: DroneNavigationContext
     assets: AssetManager
     current_time: int
-    offset_x: int
-    offset_y: int
     width: int
     height: int
     mouse_position: tuple[int, int]
 
 
 class RenderLayer(ABC):
+    """One drawable slice of the frame (background, map, actors, UI)."""
+
     @abstractmethod
     def render(self, screen: Surface, context: RenderContext) -> None:
+        """Paint this layer onto *screen* using *context* (zones, time, assets)."""
         pass
 
     def get_current_sprite(
@@ -47,6 +59,7 @@ class RenderLayer(ABC):
         sprite: Any,
         animation: int = 150,
     ) -> Surface:
+        """Pick the animation frame for *sprite* from *current_time* and *animation* ms."""
         return cast(
             Surface,
             sprite.frames[(current_time // animation) % sprite.num_frames],
@@ -54,6 +67,8 @@ class RenderLayer(ABC):
 
 
 class WaterLayer(RenderLayer):
+    """Tiled animated water filling the window behind the map."""
+
     def render(self, screen: Surface, context: RenderContext) -> None:
         current_water = self.get_current_sprite(
             current_time=context.current_time,
@@ -67,6 +82,8 @@ class WaterLayer(RenderLayer):
 
 
 class MapLayer(RenderLayer):
+    """Islands, obstacles, tinted zones, and sand bridges between neighbors."""
+
     TINT_ALPHA = 190
     RAINBOW_CYCLE_MS = 6000
 
@@ -79,6 +96,7 @@ class MapLayer(RenderLayer):
         color_name: str,
         current_time: int,
     ) -> pygame.Color | None:
+        """Turn a named or rainbow color into a pygame.Color, or None if unknown."""
         if color_name == "rainbow":
             hue = int(
                 (current_time % self.RAINBOW_CYCLE_MS)
@@ -99,6 +117,7 @@ class MapLayer(RenderLayer):
         base_surface: Surface,
         tint_color: pygame.Color,
     ) -> Surface:
+        """Return a copy of *base_surface* multiplied by *tint_color* (see TINT_ALPHA)."""
 
         tinted_surface = base_surface.copy()
 
@@ -125,7 +144,8 @@ class MapLayer(RenderLayer):
         screen: Surface,
         context: RenderContext,
     ) -> None:
-        drawn: set[frozenset[str]] = set()
+        """Draw each zone-to-zone link once as a sand-colored line between tile centers."""
+        drawn: set[frozenset[str]] = set[frozenset[str]]()
         tile_w = context.assets.island.width
         half_w = context.assets.island.width // 2
         half_h = context.assets.island.height // 2
@@ -148,18 +168,18 @@ class MapLayer(RenderLayer):
                     == "blocked"
                 ):
                     continue
-                bridge = frozenset((name, neighbor))
+                bridge = frozenset[str | Any]((name, neighbor))
                 if bridge in drawn:
                     continue
 
                 nx, ny = context.zones[neighbor]["coordinates"]
                 start = (
-                    x * tile_w + context.offset_x + half_w,
-                    y * tile_w + context.offset_y + half_h,
+                    x * tile_w + context.layout.offset_x + half_w,
+                    y * tile_w + context.layout.offset_y + half_h,
                 )
                 end = (
-                    nx * tile_w + context.offset_x + half_w,
-                    ny * tile_w + context.offset_y + half_h,
+                    nx * tile_w + context.layout.offset_x + half_w,
+                    ny * tile_w + context.layout.offset_y + half_h,
                 )
                 pygame.draw.line(
                     screen, Colors.SAND_COLOR.value, start, end, 4
@@ -171,6 +191,7 @@ class MapLayer(RenderLayer):
         screen: Surface,
         context: RenderContext,
     ) -> None:
+        """Blit island or obstacle tiles at grid positions, with optional color tint."""
         tile_w = context.assets.island.width
         for zone in context.zones.values():
             x, y = zone["coordinates"]
@@ -199,21 +220,23 @@ class MapLayer(RenderLayer):
                 screen.blit(
                     surface_to_draw,
                     (
-                        x * tile_w + context.offset_x,
-                        y * tile_w + context.offset_y + y_offset,
+                        x * tile_w + context.layout.offset_x,
+                        y * tile_w + context.layout.offset_y + y_offset,
                     ),
                 )
             else:
                 screen.blit(
                     surface_to_draw,
                     (
-                        x * tile_w + context.offset_x,
-                        y * tile_w + context.offset_y + y_offset,
+                        x * tile_w + context.layout.offset_x,
+                        y * tile_w + context.layout.offset_y + y_offset,
                     ),
                 )
 
 
 class FlagsLayer(RenderLayer):
+    """Start-hub flag and end-hub campfire markers above relevant zones."""
+
     def render(self, screen: Surface, context: RenderContext) -> None:
         tile_w = context.assets.island.width
         current_ua_flag = self.get_current_sprite(
@@ -231,32 +254,82 @@ class FlagsLayer(RenderLayer):
                 screen.blit(
                     current_ua_flag,
                     (
-                        x * tile_w + context.offset_x + 7,
-                        y * tile_w + context.offset_y - 65,
+                        x * tile_w + context.layout.offset_x + 7,
+                        y * tile_w + context.layout.offset_y - 65,
                     ),
                 )
             if zone.get("hub_type") == "end_hub":
                 screen.blit(
                     current_campfire,
                     (
-                        x * tile_w + context.offset_x - 1,
-                        y * tile_w + context.offset_y - 60,
+                        x * tile_w + context.layout.offset_x - 1,
+                        y * tile_w + context.layout.offset_y - 60,
                     ),
                 )
 
 
 class DronesLayer(RenderLayer):
-    TEST_DRONE_SPEED = 100
-    TEST_GOAL_HUB = "end_hub"
+    """Advances drone simulation each frame and draws each drone sprite."""
+
+    DRONE_SPEED_PX_PER_SEC = 72.0
+    WAIT_AT_NODE_SEC = 0.4
+
+    # Nudge sprite down so it sits on tile (layout uses tile centers).
+    DRONE_BLIT_ANCHOR_DOWN_PX = 0
+    # Nudge right so rotated sprite aligns with zone hubs.
+    DRONE_DRAW_OFFSET_X = 0
 
     def __init__(self) -> None:
+        """Create a layer; frame delta starts unset until the first render."""
         self.last_time_ms: int | None = None
-        self.current_target: tuple[float, float] | None = None
 
-    def render(self, screen: Surface, context: RenderContext) -> None: ...
+    def reset_frame_clock(self) -> None:
+        """Clear delta-time state (e.g. after restarting the simulation)."""
+        self.last_time_ms = None
+
+    def render(self, screen: Surface, context: RenderContext) -> None:
+        """Update all drones from elapsed time, then blit rotated drone frames."""
+        prev_ms = self.last_time_ms
+        if prev_ms is None:
+            delta_seconds = 0.0
+        else:
+            delta_seconds = (context.current_time - prev_ms) / 1000.0
+        self.last_time_ms = context.current_time
+
+        drone_armada = context.drone_armada
+        drone_armada.update_all(
+            delta_seconds,
+            self.DRONE_SPEED_PX_PER_SEC,
+            self.WAIT_AT_NODE_SEC,
+        )
+
+        sprite = context.assets.drone_sprite
+        for drone in drone_armada.drones:
+            movement_delta_x, movement_delta_y = (
+                drone.sprite_render_movement_delta(context.navigation_context)
+            )
+            frame = sprite.frame_for_vector(
+                movement_delta_x,
+                movement_delta_y,
+                context.current_time,
+            )
+            px, py = drone.pixel_position
+            draw_x = px + drone.render_offset_x + self.DRONE_DRAW_OFFSET_X
+            draw_y = (
+                py + drone.render_offset_y + self.DRONE_BLIT_ANCHOR_DOWN_PX
+            )
+            screen.blit(
+                frame,
+                (
+                    int(draw_x - frame.get_width() // 2),
+                    int(draw_y - frame.get_height() // 2),
+                ),
+            )
 
 
 class TextLayer(RenderLayer):
+    """Bitmap font string at a fixed position (wood font glyph atlas)."""
+
     def __init__(
         self,
         text: str,
@@ -264,12 +337,14 @@ class TextLayer(RenderLayer):
         y: int,
         strict: bool = True,
     ) -> None:
+        """Place *text* at (*x*, *y*); *strict* forbids missing glyphs (except space)."""
         self.text = text
         self.x = x
         self.y = y
         self.strict = strict
 
     def render(self, screen: Surface, context: RenderContext) -> None:
+        """Draw *self.text* left to right; unknown chars error if *strict*."""
         font_frames = context.assets.wood_font.frames
         current_position = self.x
         space_width = font_frames["A"].get_width()
@@ -284,7 +359,7 @@ class TextLayer(RenderLayer):
                 current_position += space_width
 
     def get_text_width(self, context: RenderContext) -> int:
-        """Measure pixel width with the same rules as `render()`."""
+        """Measure pixel width with the same rules as render()."""
         font_frames = context.assets.wood_font.frames
         space_width = font_frames["A"].get_width()
         width = 0
@@ -299,29 +374,67 @@ class TextLayer(RenderLayer):
 
 
 class HUDLayer(RenderLayer):
+    """Turn counter and restart hint aligned with the map legend panel."""
+
+    def __init__(self, legend_x: int, legend_y: int) -> None:
+        """Match *legend_x*/*legend_y* to MapLegendLayer for consistent HUD layout."""
+        self.legend_x = legend_x
+        self.legend_y = legend_y
+
     def render(self, screen: Surface, context: RenderContext) -> None:
-        TextLayer("Number of turns: 0", 10, 10).render(screen, context)
+        """Show synchronized turn count and PRESS R TO RESTART below the legend."""
+        synchronized_turn_count = (
+            context.drone_armada.synchronized_turn_count()
+        )
+        TextLayer(
+            f"Number of turns: {synchronized_turn_count}", 10, 10
+        ).render(
+            screen,
+            context,
+        )
+        restart_y = MapLegendLayer.content_bottom_y(context, self.legend_y)
+        TextLayer(
+            "PRESS R TO RESTART",
+            self.legend_x,
+            restart_y,
+        ).render(screen, context)
 
 
 class MapLegendLayer(RenderLayer):
+    """Wooden tile grid, icon legend (zone, hubs, obstacle), and easter-egg sprite."""
+
     BOARD_SIZE = 3
     ICON_SIZE = 36
+    OBJECT_ROW_COUNT = 4
+
+    @staticmethod
+    def content_bottom_y(context: RenderContext, legend_y: int) -> int:
+        """Y just below legend icons (HUD lines under the panel)."""
+        tile_w = context.assets.wood_tile.width
+        return (
+            legend_y
+            + tile_w
+            + MapLegendLayer.OBJECT_ROW_COUNT * (MapLegendLayer.ICON_SIZE + 10)
+            + 8
+        )
 
     def __init__(
         self,
         x: int,
         y: int,
     ) -> None:
-        self.text: TextLayer
+        """Top-left corner of the legend panel in screen pixels."""
         self.x = x
         self.y = y
 
     def render(self, screen: Surface, context: RenderContext) -> None:
+        """Draw the legend board, labeled icons, and corner decoration."""
         self._render_board(screen, context)
         self._render_objects(screen, context)
         self._draw_amogus(screen, context)
 
     def _render_board(self, screen: Surface, context: RenderContext) -> None:
+        """Tile the wood background and title MAP LEGEND."""
         tile_w = context.assets.wood_tile.width
         current_x = self.x
         for _ in range(self.BOARD_SIZE):
@@ -332,31 +445,31 @@ class MapLegendLayer(RenderLayer):
                 )
                 current_y += tile_w
             current_x += tile_w
-        self.text = TextLayer(
-            "Map Legend",
+        TextLayer(
+            "MAP LEGEND",
             self.x + (self.BOARD_SIZE * context.assets.wood_tile.width) // 4,
             self.y,
-        )
-        self.text.render(screen, context)
+        ).render(screen, context)
 
     def _render_objects(self, screen: Surface, context: RenderContext) -> None:
+        """Rows of scaled icons with text labels for map symbology."""
         objects: list[tuple[Surface, str]] = [
-            (context.assets.island.surface, "Zone"),
+            (context.assets.island.surface, "ZONE"),
             (
                 self.get_current_sprite(
                     current_time=context.current_time,
                     sprite=context.assets.ua_flag,
                 ),
-                "Start hub",
+                "START HUB",
             ),
             (
                 self.get_current_sprite(
                     current_time=context.current_time,
                     sprite=context.assets.campfire,
                 ),
-                "End hub",
+                "END HUB",
             ),
-            (context.assets.obstacle.surface, "Obstacle"),
+            (context.assets.obstacle.surface, "OBSTACLE"),
         ]
 
         tile_w = context.assets.wood_tile.width
@@ -371,6 +484,7 @@ class MapLegendLayer(RenderLayer):
             current_y += self.ICON_SIZE + 10
 
     def _draw_amogus(self, screen: Surface, context: RenderContext) -> None:
+        """Place the small amogus icon on the legend panel."""
         amogus = pygame.transform.scale(
             context.assets.amogus.surface, (self.ICON_SIZE, self.ICON_SIZE)
         )
@@ -381,6 +495,8 @@ class MapLegendLayer(RenderLayer):
 
 
 class ZoneTooltipLayer(RenderLayer):
+    """Hover tooltip listing zone name, hub type, limits, and neighbor capacities."""
+
     PADDING: int = 8
     LINE_SPACING: int = 4
     BG_COLOR: tuple[int, int, int, int] = (30, 20, 10, 210)
@@ -401,8 +517,8 @@ class ZoneTooltipLayer(RenderLayer):
                 continue
             x, y = coords
             rect = pygame.Rect(
-                x * tile_w + context.offset_x,
-                y * tile_w + context.offset_y,
+                x * tile_w + context.layout.offset_x,
+                y * tile_w + context.layout.offset_y,
                 tile_w,
                 tile_w,
             )
@@ -423,7 +539,7 @@ class ZoneTooltipLayer(RenderLayer):
         max_drones = getattr(metadata, "max_drones", 1)
         color = getattr(metadata, "color", None)
         zone_conn = context.connections.get(name, {})
-        neighbors: set[str] = zone_conn.get("connections", set())
+        neighbors: set[str] = zone_conn.get("connections", set[Any]())
         conn_meta: dict[str, Any] = zone_conn.get("metadata", {})
 
         lines: list[str] = [
@@ -463,6 +579,7 @@ class ZoneTooltipLayer(RenderLayer):
         self,
         context: RenderContext,
     ) -> tuple[int, int]:
+        """Top-left for the tooltip box, offset slightly from the cursor."""
         mx, my = context.mouse_position
         bx = mx + self.CURSOR_OFFSET
         by = my + self.CURSOR_OFFSET
@@ -477,6 +594,7 @@ class ZoneTooltipLayer(RenderLayer):
         by: int,
         char_h: int,
     ) -> None:
+        """Draw each *lines* entry with TextLayer inside the padded box."""
         current_y = by + self.PADDING
         for line in lines:
             TextLayer(line, bx + self.PADDING, current_y, strict=False).render(
