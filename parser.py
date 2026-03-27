@@ -1,3 +1,5 @@
+"""Parse the Fly-in map file: hubs, zone metadata, connections, and drone count."""
+
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Any
@@ -7,10 +9,12 @@ from enum import Enum
 
 
 class StrEnum(str, Enum):
-    pass
+    """String-valued enum (comparable to plain strings)."""
 
 
 class ZoneTypes(StrEnum):
+    """Zone category: movement cost, passability, and A* priority tie-in."""
+
     NORMAL = "normal"
     BLOCKED = "blocked"
     RESTRICTED = "restricted"
@@ -18,7 +22,7 @@ class ZoneTypes(StrEnum):
 
     @property
     def cost(self) -> float:
-        """Returns the movement cost for the zone."""
+        """Numeric cost used for routing (blocked → infinity)."""
         cost_map = {
             ZoneTypes.NORMAL: 1.0,
             ZoneTypes.RESTRICTED: 2.0,
@@ -29,25 +33,33 @@ class ZoneTypes(StrEnum):
 
     @property
     def is_passable(self) -> bool:
+        """False only for BLOCKED."""
         return self != ZoneTypes.BLOCKED
 
     @property
     def is_priority(self) -> bool:
+        """True for PRIORITY hubs (explored preferentially in pathfinding)."""
         return self == ZoneTypes.PRIORITY
 
 
 class AllowedMetadataHubs(StrEnum):
+    """Keys permitted in bracket [...] blocks on hub lines."""
+
     ZONE = "zone"
     COLOR = "color"
     MAX_DRONES = "max_drones"
 
 
 class AllowedMetadataConnections(StrEnum):
+    """Keys permitted in bracket [...] blocks on connection lines."""
+
     MAX_LINK_CAPACITY = "max_link_capacity"
 
 
 @dataclass
 class ZoneMetadata:
+    """Parsed optional fields for a zone hub line."""
+
     color: str | None = None
     zone: str = ZoneTypes.NORMAL
     max_drones: int = 1
@@ -55,6 +67,8 @@ class ZoneMetadata:
 
 @dataclass
 class ConnectionMetadata:
+    """Parsed optional fields for a connection line."""
+
     max_link_capacity: int = 1
 
 
@@ -62,18 +76,23 @@ MetadataType = ZoneMetadata | ConnectionMetadata
 
 
 class FileReaderError(Exception):
+    """The map file could not be opened or read."""
+
     def __init__(self, detail: str) -> None:
         message = f"Error occurred while reading: {detail}"
         super().__init__(message)
 
 
 class ParsingError(Exception):
+    """Line format or semantic rule violated while parsing the map."""
+
     def __init__(self, detail: str) -> None:
         message = f"Error occurred while parsing: {detail}"
         super().__init__(message)
 
 
 class InputParser:
+    """Incremental parser: parse_lines then parse_input (and parse_connections)."""
 
     def __init__(self) -> None:
         self.zones: dict[str, dict[str, Any]] = defaultdict(dict)
@@ -84,12 +103,14 @@ class InputParser:
 
     @property
     def get_zones(self) -> Dict[str, Dict[str, Any]]:
+        """Copy of parsed zones (hub type, coordinates, ZoneMetadata)."""
         return dict(self.zones)
 
     @staticmethod
     def _parse_metadata(
         metadata: str, is_connection: bool
     ) -> ZoneMetadata | ConnectionMetadata:
+        """Parse key=value tokens inside bracket [...] into a metadata dataclass."""
         if not metadata:
             return ConnectionMetadata() if is_connection else ZoneMetadata()
 
@@ -130,6 +151,7 @@ class InputParser:
             return ZoneMetadata(**parsed_clean)
 
     def parse_lines(self, name: str) -> None:
+        """Read the entire file into parsed_lines."""
         try:
             with open(file=name, mode="r") as f:
                 self.parsed_lines = f.readlines()
@@ -137,6 +159,7 @@ class InputParser:
             raise FileReaderError("File not found")
 
     def parse_input(self) -> None:
+        """Parse hub lines, nb_drones, and connection lines; builds adjacency last."""
         pattern = (
             r"(start_hub|end_hub|hub):\s+"
             r"(\w+)\s+(-?\d+)\s+(-?\d+)"
@@ -199,6 +222,7 @@ class InputParser:
             raise ParsingError(str(err))
 
     def parse_connections(self) -> None:
+        """Expand raw_connections into bidirectional connections with metadata."""
         for (hub_one, hub_two), meta in self.raw_connections:
             if hub_one not in self.connections:
                 self.connections[hub_one] = {

@@ -7,7 +7,10 @@ from collections.abc import Mapping
 
 
 class GameWorldError(Exception):
-    """Invalid or incomplete world data (zones, hubs, graph)."""
+    """Invalid or incomplete world data (e.g. missing start or end hub)."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"Game world error: {detail}")
 
 
 @dataclass
@@ -24,6 +27,7 @@ class GameWorld:
     def _zone_for_hub_type(
         zones: Mapping[str, Dict[str, Any]], hub_type: str
     ) -> str:
+        """Return the unique zone name whose hub_type matches *hub_type*."""
         for name, zone in zones.items():
             if zone.get("hub_type") == hub_type:
                 return name
@@ -36,6 +40,7 @@ class GameWorld:
         connections: Mapping[str, Dict[str, Any]],
         num_drones: int,
     ) -> GameWorld:
+        """Build a world: resolve start/end hub zones and attach drone count."""
         start = GameWorld._zone_for_hub_type(zones, "start_hub")
         end = GameWorld._zone_for_hub_type(zones, "end_hub")
         return cls(

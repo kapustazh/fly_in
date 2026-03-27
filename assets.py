@@ -1,3 +1,8 @@
+"""
+Load and prepare pygame images: water, map tiles, fonts, and the drone
+atlas.
+"""
+
 from sprites import Sprite, AnimatedSprite, Font
 from drone_sprite import DroneSprite
 from pathlib import Path
@@ -9,12 +14,16 @@ import pygame  # noqa: E402
 
 
 class AssetError(Exception):
+    """Missing file or other failure while loading game art."""
+
     def __init__(self, detail: str) -> None:
         super().__init__(f"Asset loading error: {detail}")
 
 
 # Added pathlib instead of the old os.path.join why not
 class AssetManager:
+    """Holds loaded surfaces and sprites; call load() after pygame.init."""
+
     def __init__(self) -> None:
         self.water: AnimatedSprite
         self.icon: Sprite
@@ -28,6 +37,7 @@ class AssetManager:
         self.amogus: Sprite
 
     def load(self) -> None:
+        """Load images from the assets/ directory and run _prepare_sprites."""
         assets_root = Path(__file__).parent / "assets"
 
         def load_image(*parts: str) -> Surface:
@@ -67,6 +77,7 @@ class AssetManager:
         self._prepare_sprites()
 
     def _prepare_sprites(self) -> None:
+        """Scale, slice, and post-process sprites"""
         self.water.prepare_frames(scale=2.0)
         self.campfire.prepare_frames(scale=1.4)
         self.ua_flag.prepare_frames(scale=1.5)

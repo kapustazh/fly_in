@@ -1,3 +1,5 @@
+"""Pygame main loop: load assets, build the world, and run layered rendering."""
+
 from parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
@@ -31,6 +33,8 @@ import pygame  # noqa: E402
 
 
 class Renderer:
+    """Window, layer stack, and simulation wiring for the Fly-in demo."""
+
     WIDTH = 1920
     HEIGHT = 1080
 
@@ -39,6 +43,8 @@ class Renderer:
         game_world: GameWorld,
         assets: AssetManager,
     ) -> None:
+        """Center the map on screen, prepare layers (water through tooltip),
+        empty armada."""
         self._game_world = game_world
         self.zones = game_world.zones
         self.connections = game_world.connections
@@ -65,12 +71,14 @@ class Renderer:
         ]
 
     def _init_pygame(self) -> None:
+        """Create the display, title, and clock."""
         pygame.init()
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT))
         pygame.display.set_caption("Fly-in")
         self.clock = pygame.time.Clock()
 
     def _compute_offset(self) -> None:
+        """Pan the zone bounding box to the center of WIDTH×HEIGHT."""
         tile_w = self.assets.island.width
         x = [zone["coordinates"][0] * tile_w for zone in self.zones.values()]
         y = [zone["coordinates"][1] * tile_w for zone in self.zones.values()]
@@ -95,6 +103,7 @@ class Renderer:
         )
 
     def _build_context(self) -> RenderContext:
+        """Snapshot everything layers need for one frame (time, mouse, armada)."""
         assert self._zone_layout is not None
         assert self._drone_navigation_context is not None
         return RenderContext(
@@ -111,6 +120,7 @@ class Renderer:
         )
 
     def _spawn_armada(self) -> None:
+        """Plan routes and populate drones from GameWorld (fleet + fallback)."""
         assert self._zone_layout is not None
         route_planner = RoutePlanner(self._game_world)
         self._drone_navigation_context = DroneNavigationContext(
@@ -126,6 +136,7 @@ class Renderer:
         self.drone_armada.launch_armada(self._game_world, route_planner)
 
     def _restart_simulation(self) -> None:
+        """Replan and reset drone motion timing (e.g. after pressing R)."""
         for layer in self.layers:
             if isinstance(layer, DronesLayer):
                 layer.reset_frame_clock()
@@ -133,6 +144,7 @@ class Renderer:
         self._spawn_armada()
 
     def run(self) -> None:
+        """Load assets, enter the event/render loop at 60 FPS until quit."""
         self._init_pygame()
         try:
             self.assets.load()  # load after pygame.init
@@ -168,6 +180,8 @@ class Renderer:
 
 
 class InformationManager:
+    """CLI entry: parse map file, build GameWorld, start the Renderer."""
+
     def __init__(self) -> None:
         self._zones: Mapping[str, Dict[str, Any]] = {}
         self._connections: Mapping[str, Dict[str, Any]] = {}
@@ -175,6 +189,7 @@ class InformationManager:
 
     @property
     def _get_filepath(self) -> Any:
+        """Path argument from argparse (first positional)."""
         parser = argparse.ArgumentParser(
             prog="fly-in",
             description=(
@@ -190,6 +205,7 @@ class InformationManager:
         return args.filepath
 
     def parse_input(self) -> None:
+        """Read and parse the map file into zones, connections, and drone count."""
         try:
             my_parser = InputParser()
             my_parser.parse_lines(self._get_filepath)
@@ -204,6 +220,7 @@ class InformationManager:
             sys.exit(1)
 
     def run(self) -> None:
+        """Parse input, construct the world, and run the game window."""
         self.parse_input()
         assets = AssetManager()
         # import pprint

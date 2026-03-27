@@ -1,4 +1,7 @@
-"""Drone 4×4 atlas: slice banks, pick frame by path, rotate for velocity."""
+"""One big drone image is cut into a 4x4 grid.
+
+We pick a piece and turn it so the drone faces the way it moves.
+"""
 
 from __future__ import annotations
 
@@ -15,52 +18,50 @@ import pygame  # noqa: E402
 
 
 class DroneSprite(AnimatedSprite):
+    """Drone sprites come from a 4x4 sheet."""
+
     COLS = ROWS = 4
-    _NATIVE_RIGHT_DOWN = -45.0
-    _NATIVE_LEFT_DOWN = -135.0
+    NATIVE_RIGHT_DOWN_DEG = 315.0  # 4 чверть
+    NATIVE_LEFT_DOWN_DEG = 225.0  # 3 чверть
     HEADING_OFFSET_DEG = 0.0
     PYGAME_ROTATE_SIGN = 1.0
 
+    def __init__(self, surface: Surface) -> None:
+        super().__init__(surface, num_frames=self.COLS * self.ROWS)
+        self.frames_right_down: list[Surface] = []
+        self.frames_left_down: list[Surface] = []
+
     @staticmethod
     def _norm_deg180(deg: float) -> float:
-        """Map *deg* to (-180, 180] so rotation deltas stay on the short arc.
-
-        Collapses -180 and +180 to a single representation (180).
-        """
+        """Normalize angle to -180 to 180 degrees."""
         x = (deg + 180.0) % 360.0 - 180.0
         return 180.0 if x == -180.0 else x
 
     @staticmethod
     def _angular_distance_deg(a: float, b: float) -> float:
-        """Smallest absolute difference between two headings in degrees."""
+        """Smallest angle between two angles in degrees."""
         return abs(DroneSprite._norm_deg180(a - b))
 
     @staticmethod
     def screen_heading_deg(dx: float, dy: float) -> float:
-        """Heading of screen-space motion in degrees CCW from +x.
-
-        Uses ``atan2(-dy, dx)`` so +y down (Pygame) matches
-        ``pygame.transform.rotate`` convention.
+        """Movement direction in degrees, always in [0, 360]
+        0 = right,
+        90 = up on the screen,
+        180 = left,
+        270 = down
         """
-        return math.degrees(math.atan2(-dy, dx))
+        deg = math.degrees(math.atan2(-dy, dx))
+        return (deg % 360.0 + 360.0) % 360.0
 
     @staticmethod
-    def bank_key_for_velocity(
-        dx: float, dy: float, dead_zone: float = 1.5
-    ) -> str:
-        """Pick bank: idle, right_down (row 2), or left_down.
-
-        Below *dead_zone* → ``idle``. Else nearest native nose (-45° vs -135°);
-        ties use *dx* sign.
-        """
-        if hypot(dx, dy) < dead_zone:
-            return "idle"
-        h = DroneSprite.screen_heading_deg(dx, dy)
+    def bank_key_from_heading(h: float, dx: float) -> str:
+        """right_down vs left_down by which native angle
+        is closer to h (0 to 360)"""
         d_rd = DroneSprite._angular_distance_deg(
-            h, DroneSprite._NATIVE_RIGHT_DOWN
+            h, DroneSprite.NATIVE_RIGHT_DOWN_DEG
         )
         d_ld = DroneSprite._angular_distance_deg(
-            h, DroneSprite._NATIVE_LEFT_DOWN
+            h, DroneSprite.NATIVE_LEFT_DOWN_DEG
         )
         if d_rd < d_ld:
             return "right_down"
@@ -68,14 +69,19 @@ class DroneSprite(AnimatedSprite):
             return "left_down"
         return "right_down" if dx >= 0.0 else "left_down"
 
-    def __init__(self, surface: Surface) -> None:
-        """Load a 4×4 atlas; frame banks are filled in ``prepare_frames``."""
-        super().__init__(surface, num_frames=self.COLS * self.ROWS)
-        self.frames_right_down: list[Surface] = []
-        self.frames_left_down: list[Surface] = []
+    @staticmethod
+    def bank_key_for_velocity(
+        dx: float, dy: float, dead_zone: float = 1.5
+    ) -> str:
+        """idle, or which bank is closest to motion (
+        convenience; calls screen_heading once)."""
+        if hypot(dx, dy) < dead_zone:
+            return "idle"
+        h = DroneSprite.screen_heading_deg(dx, dy)
+        return DroneSprite.bank_key_from_heading(h, dx)
 
     def prepare_frames(self, scale: float = 1.0) -> None:
-        """Slice atlas into 16 cells, scale, split left/right banks."""
+        """Cut the sheet into 16 squares and resize them."""
         fw = self.width // self.COLS
         fh = self.height // self.ROWS
         self.frames = []
@@ -84,8 +90,8 @@ class DroneSprite(AnimatedSprite):
                 sub = self.surface.subsurface(
                     pygame.Rect(col * fw, row * fh, fw, fh)
                 )
-                w = max(1, int(sub.get_width() * scale))
-                h = max(1, int(sub.get_height() * scale))
+                w = int(sub.get_width() * scale)
+                h = int(sub.get_height() * scale)
                 self.frames.append(pygame.transform.scale(sub, (w, h)))
         self.frames_right_down = self.frames[8:12]
         self.frames_left_down = self.frames[0:8] + self.frames[12:16]
@@ -98,32 +104,29 @@ class DroneSprite(AnimatedSprite):
         animation: int = 150,
         dead_zone: float = 1.5,
     ) -> Surface:
-        """Surface for path direction (*dx*, *dy*); animates by *current_time*.
+        """Return the image for movement (dx, dy);
+        time picks the animation frame.
 
-        Idle cycles the left bank; moving picks a bank, then rotates the cel
-        so the drone nose matches ``screen_heading_deg(dx, dy)``.
+        Idle loops the left bank with no rotation. Moving picks the closer bank
+        then rotates from that bank's native heading toward screen_heading_deg
+        (0 to 360).
         """
         if not self.frames_left_down:
-            n = max(1, len(self.frames))
+            n = len(self.frames)
             return self.frames[(current_time // animation) % n]
 
         tick = current_time // animation
-        key = DroneSprite.bank_key_for_velocity(dx, dy, dead_zone)
-        if key == "idle":
+        if hypot(dx, dy) < dead_zone:
             bank = self.frames_left_down
             return bank[tick % len(bank)]
 
+        h = DroneSprite.screen_heading_deg(dx, dy)
+        key = DroneSprite.bank_key_from_heading(h, dx)
         if key == "right_down":
-            bank, native = self.frames_right_down, self._NATIVE_RIGHT_DOWN
+            bank, native = self.frames_right_down, self.NATIVE_RIGHT_DOWN_DEG
         else:
-            bank, native = self.frames_left_down, self._NATIVE_LEFT_DOWN
+            bank, native = self.frames_left_down, self.NATIVE_LEFT_DOWN_DEG
 
         base = bank[tick % len(bank)]
-        angle = DroneSprite._norm_deg180(
-            DroneSprite.screen_heading_deg(dx, dy)
-            - native
-            + self.HEADING_OFFSET_DEG
-        )
-        return pygame.transform.rotate(
-            base, angle * self.PYGAME_ROTATE_SIGN
-        )
+        angle = DroneSprite._norm_deg180(h - native + self.HEADING_OFFSET_DEG)
+        return pygame.transform.rotate(base, angle * self.PYGAME_ROTATE_SIGN)
