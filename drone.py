@@ -170,7 +170,7 @@ class Drone:
         if next_zone_on_path == self.current_zone:
             self.cumulative_simulation_turns += 1
             self._next_zone_index += 1
-            self._wait_remaining = wait_at_node_sec * 1.0
+            self._wait_remaining = wait_at_node_sec * 1.7
             if self._next_zone_index >= len(self.zone_path):
                 self._arrived = True
             return
@@ -381,3 +381,7 @@ class DroneArmada:
         if active:
             return min(d.cumulative_simulation_turns for d in active)
         return max(d.cumulative_simulation_turns for d in self.drones)
+
+    def all_finished(self) -> bool:
+        """True when all drones have arrived at the end zone."""
+        return all(d.has_arrived for d in self.drones)

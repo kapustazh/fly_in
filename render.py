@@ -18,6 +18,7 @@ from layers import (
     MapLegendLayer,
     HUDLayer,
     ZoneTooltipLayer,
+    HelpOverlayLayer,
 )
 from game import GameWorld
 from map_layout import ZoneLayout
@@ -58,6 +59,10 @@ class Renderer:
         self.current_time: int
         self.offset_x: int
         self.offset_y: int
+        self._offset_x_f: float = 0.0
+        self._offset_y_f: float = 0.0
+        self.show_help: bool = False
+        self.paused: bool = False
         legend_x = self.WIDTH // 32
         legend_y = self.HEIGHT // 4
         self.layers: list[RenderLayer] = [
@@ -68,6 +73,7 @@ class Renderer:
             MapLegendLayer(legend_x, legend_y),
             HUDLayer(legend_x, legend_y),
             ZoneTooltipLayer(),
+            HelpOverlayLayer(),
         ]
 
     def _init_pygame(self) -> None:
@@ -78,23 +84,52 @@ class Renderer:
         self.clock = pygame.time.Clock()
 
     def _compute_offset(self) -> None:
-        """Pan the zone bounding box to the center of WIDTH×HEIGHT."""
-        tile_w = self.assets.island.width
-        x = [zone["coordinates"][0] * tile_w for zone in self.zones.values()]
-        y = [zone["coordinates"][1] * tile_w for zone in self.zones.values()]
-        self.offset_x = self.WIDTH // 2 - (min(x) + max(x)) // 2
-        self.offset_y = self.HEIGHT // 2 - (min(y) + max(y)) // 2
+        """Set camera so world origin starts at screen center.
 
+        With the current draw formulas (tile top-left at x * tile_w + offset_x),
+        choosing offset_x/y like this places the center of the (0,0) zone at
+        (WIDTH/2, HEIGHT/2).
+        """
+        half_w = self.assets.island.width // 2
+        half_h = self.assets.island.height // 2
+        self.offset_x = self.WIDTH // 2 - half_w
+        self.offset_y = self.HEIGHT // 2 - half_h
+        self._offset_x_f = float(self.offset_x)
+        self._offset_y_f = float(self.offset_y)
+
+    def _move_camera(self, dx: float, dy: float) -> None:
+        """Move the camera by (dx, dy) screen pixels."""
+        self._offset_x_f += dx
+        self._offset_y_f += dy
+        new_off_x = int(round(self._offset_x_f))
+        new_off_y = int(round(self._offset_y_f))
+        delta_x = new_off_x - self.offset_x
+        delta_y = new_off_y - self.offset_y
+        if delta_x == 0 and delta_y == 0:
+            return
+
+        self.offset_x = new_off_x
+        self.offset_y = new_off_y
+
+        # Update render offsets; drones stay in world-space pixels.
+        assert self._zone_layout is not None
+        self._zone_layout = ZoneLayout(
+            pixel_center_by_zone=self._zone_layout.pixel_center_by_zone,
+            offset_x=self.offset_x,
+            offset_y=self.offset_y,
+        )
+            
     def _build_zone_layout(self) -> None:
-        """Pixel target per zone: island tile center in screen space."""
+        """World-space pixel target per zone plus current render offsets."""
         tile_w = self.assets.island.width
-        half_w = self.assets.island.width * 0.5
-        half_h = self.assets.island.height * 0.5
+        half_w = self.assets.island.width // 2
+        half_h = self.assets.island.height // 2
         pixel_center_by_zone: dict[str, tuple[float, float]] = {}
         for zone_name, zone in self.zones.items():
             x, y = zone["coordinates"]
-            px = float(x * tile_w + self.offset_x + half_w)
-            py = float(y * tile_w + self.offset_y + half_h)
+            # World-space (no screen offset baked in).
+            px = float(x * tile_w + half_w)
+            py = float(y * tile_w + half_h)
             pixel_center_by_zone[zone_name] = (px, py)
         self._zone_layout = ZoneLayout(
             pixel_center_by_zone=pixel_center_by_zone,
@@ -117,6 +152,8 @@ class Renderer:
             mouse_position=pygame.mouse.get_pos(),
             drone_armada=self.drone_armada,
             navigation_context=self._drone_navigation_context,
+            show_help=self.show_help,
+            paused=self.paused,
         )
 
     def _spawn_armada(self) -> None:
@@ -143,6 +180,38 @@ class Renderer:
                 break
         self._spawn_armada()
 
+    def _handle_events(self) -> None:
+        """Handle discrete events (quit/restart)."""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_q:
+                    self.running = False
+                if event.key == pygame.K_r:
+                    self._restart_simulation()
+                if event.key == pygame.K_h:
+                    self.show_help = not self.show_help
+                if event.key == pygame.K_SPACE:
+                    self.paused = not self.paused
+
+    def _handle_camera_keys(self, dt_seconds: float) -> None:
+        """Smooth camera movement while arrow/WASD keys are held."""
+        keys = pygame.key.get_pressed()
+        camera_speed = 800.0
+        dx = 0.0
+        dy = 0.0
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            dx += camera_speed * dt_seconds
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            dx -= camera_speed * dt_seconds
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            dy += camera_speed * dt_seconds
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            dy -= camera_speed * dt_seconds
+        if dx != 0.0 or dy != 0.0:
+            self._move_camera(dx, dy)
+
     def run(self) -> None:
         """Load assets, enter the event/render loop at 60 FPS until quit."""
         self._init_pygame()
@@ -156,14 +225,10 @@ class Renderer:
         self._spawn_armada()
         try:
             while self.running:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        self.running = False
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_q:
-                            self.running = False
-                        if event.key == pygame.K_r:
-                            self._restart_simulation()
+                dt_seconds = self.clock.get_time() / 1000.0
+                self._handle_events()
+                self._handle_camera_keys(dt_seconds)
+
                 self.current_time = pygame.time.get_ticks()
                 context = self._build_context()
                 for layer in self.layers:
@@ -235,6 +300,3 @@ class InformationManager:
         )
         Renderer(game_world=game_world, assets=assets).run()
 
-
-if __name__ == "__main__":
-    InformationManager().run()

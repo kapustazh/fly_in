@@ -43,6 +43,8 @@ class RenderContext:
     width: int
     height: int
     mouse_position: tuple[int, int]
+    show_help: bool = False
+    paused: bool = False
 
 
 class RenderLayer(ABC):
@@ -216,22 +218,13 @@ class MapLayer(RenderLayer):
             )
 
             y_offset = -4 if is_blocked else 0
-            if is_blocked:
-                screen.blit(
-                    surface_to_draw,
-                    (
-                        x * tile_w + context.layout.offset_x,
-                        y * tile_w + context.layout.offset_y + y_offset,
-                    ),
-                )
-            else:
-                screen.blit(
-                    surface_to_draw,
-                    (
-                        x * tile_w + context.layout.offset_x,
-                        y * tile_w + context.layout.offset_y + y_offset,
-                    ),
-                )
+            screen.blit(
+                surface_to_draw,
+                (
+                    x * tile_w + context.layout.offset_x,
+                    y * tile_w + context.layout.offset_y + y_offset,
+                ),
+            )
 
 
 class FlagsLayer(RenderLayer):
@@ -297,11 +290,12 @@ class DronesLayer(RenderLayer):
         self.last_time_ms = context.current_time
 
         drone_armada = context.drone_armada
-        drone_armada.update_all(
-            delta_seconds,
-            self.DRONE_SPEED_PX_PER_SEC,
-            self.WAIT_AT_NODE_SEC,
-        )
+        if not context.paused:
+            drone_armada.update_all(
+                delta_seconds,
+                self.DRONE_SPEED_PX_PER_SEC,
+                self.WAIT_AT_NODE_SEC,
+            )
 
         sprite = context.assets.drone_sprite
         for drone in drone_armada.drones:
@@ -314,9 +308,17 @@ class DronesLayer(RenderLayer):
                 context.current_time,
             )
             px, py = drone.pixel_position
-            draw_x = px + drone.render_offset_x + self.DRONE_DRAW_OFFSET_X
+            draw_x = (
+                px
+                + context.layout.offset_x
+                + drone.render_offset_x
+                + self.DRONE_DRAW_OFFSET_X
+            )
             draw_y = (
-                py + drone.render_offset_y + self.DRONE_BLIT_ANCHOR_DOWN_PX
+                py
+                + context.layout.offset_y
+                + drone.render_offset_y
+                + self.DRONE_BLIT_ANCHOR_DOWN_PX
             )
             screen.blit(
                 frame,
@@ -386,19 +388,78 @@ class HUDLayer(RenderLayer):
         synchronized_turn_count = (
             context.drone_armada.synchronized_turn_count()
         )
+        if not context.drone_armada.all_finished():
+            TextLayer(
+                f"Number of turns: {synchronized_turn_count}",
+                10,
+                10,
+            ).render(screen, context)
+        else:
+            TextLayer(
+                f"YOU WIN WITH {synchronized_turn_count} TURNS",
+                10,
+                10,
+            ).render(screen, context)
+        if context.paused:
+            TextLayer("PAUSED", 10, 34).render(screen, context)
+
+        base_y = MapLegendLayer.content_bottom_y(context, self.legend_y)
         TextLayer(
-            f"Number of turns: {synchronized_turn_count}", 10, 10
-        ).render(
-            screen,
-            context,
-        )
-        restart_y = MapLegendLayer.content_bottom_y(context, self.legend_y)
-        TextLayer(
-            "PRESS R TO RESTART",
+            "PRESS H FOR HELP",
             self.legend_x,
-            restart_y,
+            base_y,
+            strict=False,
         ).render(screen, context)
 
+
+class HelpOverlayLayer(RenderLayer):
+    """Full-screen help overlay toggled by H."""
+
+    PADDING = 24
+    BG_COLOR = (0, 0, 0, 180)
+
+    def render(self, screen: Surface, context: RenderContext) -> None:
+        if not context.show_help:
+            return
+
+        overlay = pygame.Surface((context.width, context.height), pygame.SRCALPHA)
+        overlay.fill(self.BG_COLOR)
+        screen.blit(overlay, (0, 0))
+
+        line_h = context.assets.wood_font.frames["A"].get_height() + 6
+
+        lines = [
+            "FLY-IN HELP",
+            "",
+            "GOAL: GET ALL DRONES FROM START HUB TO END HUB",
+            "THE MAP IS A GRAPH OF ZONES AND CONNECTIONS",
+            "",
+            "WASD and arrow keys: move camera",
+            "SPACE: pause or resume",
+            "R: restart",
+            "Q: quit",
+            "H: toggle help",
+            "",
+            "POINT THE MOUSE TO A ZONE TO SEE INFO",
+        ]
+
+        non_empty_lines = [line for line in lines if line]
+        max_text_width = max(
+            TextLayer(line, 0, 0, strict=False).get_text_width(context)
+            for line in non_empty_lines
+        )
+        total_text_height = line_h * len(lines)
+
+        # Center the help block for a "book page" look.
+        x = max(self.PADDING, (context.width - max_text_width) // 2)
+        y = max(self.PADDING, (context.height - total_text_height) // 2)
+
+        for line in lines:
+            if line == "":
+                y += line_h
+                continue
+            TextLayer(line, x, y, strict=False).render(screen, context)
+            y += line_h
 
 class MapLegendLayer(RenderLayer):
     """Wooden tile grid, icon legend (zone, hubs, obstacle), and easter-egg sprite."""
@@ -409,7 +470,7 @@ class MapLegendLayer(RenderLayer):
 
     @staticmethod
     def content_bottom_y(context: RenderContext, legend_y: int) -> int:
-        """Y just below legend icons (HUD lines under the panel)."""
+        """Y just below legend icons."""
         tile_w = context.assets.wood_tile.width
         return (
             legend_y
@@ -431,7 +492,7 @@ class MapLegendLayer(RenderLayer):
         """Draw the legend board, labeled icons, and corner decoration."""
         self._render_board(screen, context)
         self._render_objects(screen, context)
-        self._draw_amogus(screen, context)
+        self._draw_amogus(screen, context, (self.x, self.y))
 
     def _render_board(self, screen: Surface, context: RenderContext) -> None:
         """Tile the wood background and title MAP LEGEND."""
@@ -483,14 +544,14 @@ class MapLegendLayer(RenderLayer):
             TextLayer(label, text_x, current_y).render(screen, context)
             current_y += self.ICON_SIZE + 10
 
-    def _draw_amogus(self, screen: Surface, context: RenderContext) -> None:
+    def _draw_amogus(self, screen: Surface, context: RenderContext, coordinates: tuple[int, int]) -> None:
         """Place the small amogus icon on the legend panel."""
         amogus = pygame.transform.scale(
             context.assets.amogus.surface, (self.ICON_SIZE, self.ICON_SIZE)
         )
         screen.blit(
             amogus,
-            (self.x, self.y),
+            coordinates,
         )
 
 
