@@ -16,7 +16,7 @@ class ZoneLayout:
     def pixel_center_for_zone_name(
         self, zone_name: str
     ) -> tuple[float, float]:
-        """Return the screen-space center of *zone_name* (raises if unknown)."""
+        """Return screen-space center of *zone_name* (raises if unknown)."""
         pixel_center = self.pixel_center_by_zone.get(zone_name)
         if pixel_center is None:
             raise ValueError(f"No pixel position for zone '{zone_name}'")

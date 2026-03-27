@@ -40,7 +40,7 @@ class GameWorld:
         connections: Mapping[str, Dict[str, Any]],
         num_drones: int,
     ) -> GameWorld:
-        """Build a world: resolve start/end hub zones and attach drone count."""
+        """Build world from hub_type (start/end) and drone count."""
         start = GameWorld._zone_for_hub_type(zones, "start_hub")
         end = GameWorld._zone_for_hub_type(zones, "end_hub")
         return cls(

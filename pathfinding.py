@@ -55,7 +55,7 @@ class RoutePlanner:
 
     @property
     def movement_model(self) -> ZoneMovementModel:
-        """Per-zone costs and passability used by simulation and timed search."""
+        """Per-zone costs and passability for simulation and timed search."""
         return self._movement
 
     def plan(self, start_zone: str, end_zone: str) -> PlannedRoute:
@@ -142,7 +142,7 @@ class RoutePlanner:
     def _heuristic(
         zones: Mapping[str, Dict[str, Any]], from_zone: str, to_zone: str
     ) -> float:
-        """Straight-line grid distance between zone centers (admissible for A*)."""
+        """Straight-line grid distance between zone centers (A* heuristic)."""
         ax, ay = RoutePlanner._grid_xy(zones, from_zone)
         bx, by = RoutePlanner._grid_xy(zones, to_zone)
         return hypot(ax - bx, ay - by)

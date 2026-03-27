@@ -29,7 +29,9 @@ EXPECTED_ERROR_SUBSTRINGS: dict[str, str] = {
     "error_nonint_link_capacity.txt": "'max_link_capacity' must be an integer",
     "error_self_connection.txt": "Self connection",
     "error_duplicate_connection.txt": "Duplicate connection",
-    "error_missing_equals_in_metadata.txt": "dictionary update sequence element",
+    "error_missing_equals_in_metadata.txt": (
+        "dictionary update sequence element"
+    ),
 }
 
 

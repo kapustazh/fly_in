@@ -1,4 +1,4 @@
-"""Drone entities and fleet: pixel motion along planned routes and armada setup."""
+"""Drones and fleet: pixel motion along routes and armada setup."""
 
 from __future__ import annotations
 
@@ -358,7 +358,7 @@ class DroneArmada:
         speed_px_per_sec: float,
         wait_at_node_sec: float,
     ) -> None:
-        """Step every drone for this frame using shared speed and wait settings."""
+        """Step each drone for this frame (shared speed and node wait)."""
         if self._navigation_context is None:
             return
         if wait_at_node_sec <= 0.0:

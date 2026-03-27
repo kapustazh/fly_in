@@ -7,7 +7,7 @@ from typing import Any
 from drone import Drone
 from game import GameWorld
 from parser import ConnectionMetadata, ZoneMetadata, ZoneTypes
-from pathfinding import AStar
+from pathfinding import RoutePlanner
 
 
 class TestSingleDroneMovement(unittest.TestCase):
@@ -70,9 +70,11 @@ class TestSingleDroneMovement(unittest.TestCase):
             },
         }
 
-        world = GameWorld(zones=zones, connections=connections, num_drones=1)
-        pathfinder = AStar(world)
-        path = pathfinder.find_path(start_zone="alpha", end_zone="delta")
+        world = GameWorld.from_parsed_map(
+            zones=zones, connections=connections, num_drones=1
+        )
+        pathfinder = RoutePlanner(world)
+        path = pathfinder.plan(start_zone="alpha", end_zone="delta").zone_names
 
         # Path quality checks
         self.assertEqual(path[0], "alpha")
@@ -85,7 +87,11 @@ class TestSingleDroneMovement(unittest.TestCase):
             x, y = zones[zone_name]["coordinates"]
             return float(x), float(y)
 
-        drone = Drone(current_zone=path[0], pixel_position=to_point(path[0]))
+        drone = Drone(
+            current_zone=path[0],
+            pixel_position=to_point(path[0]),
+            end_zone=path[-1],
+        )
         speed = 1.0
         delta_seconds = 0.25
 

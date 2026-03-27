@@ -1,4 +1,4 @@
-"""Fleet-level routing: timed capacity-aware paths with optional A* fallback."""
+"""Fleet routing: timed capacity-aware paths; optional A* fallback."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class FleetRoutePlanner:
 
     @staticmethod
     def _max_time_budget(game_world: GameWorld, num_drones: int) -> int:
-        """Upper bound on simulated turns for timed search (scales with map and fleet)."""
+        """Upper bound on simulated turns for timed search (map + fleet)."""
         nz = max(1, len(game_world.zones))
         return min(15_000, 300 + num_drones * 250 + nz * 80)
 
@@ -43,7 +43,7 @@ class FleetRoutePlanner:
         *,
         capacity_exempt_hub_zone_names: frozenset[str],
     ) -> FleetPlanResult:
-        """Plan each drone in order, reserving capacity; on failure use per-drone A*."""
+        """Plan drones in order; reserve capacity or use per-drone A*."""
         movement = route_planner.movement_model
         ledger = TurnOccupancyLedger(
             game_world.zones,
@@ -81,7 +81,7 @@ class FleetRoutePlanner:
     def _fallback(
         route_planner: RoutePlanner, drones: Sequence[DroneRouteEndpoints]
     ) -> FleetPlanResult:
-        """Ignore shared capacity and plan each drone independently (overlap possible)."""
+        """Plan each drone alone; ignore shared capacity (overlap ok)."""
         routes = [
             route_planner.plan(d.current_zone, d.end_zone) for d in drones
         ]

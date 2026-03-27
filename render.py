@@ -1,4 +1,4 @@
-"""Pygame main loop: load assets, build the world, and run layered rendering."""
+"""Pygame loop: load assets, build world, run layered rendering."""
 
 from parser import InputParser, FileReaderError, ParsingError
 import argparse
@@ -86,7 +86,7 @@ class Renderer:
     def _compute_offset(self) -> None:
         """Set camera so world origin starts at screen center.
 
-        With the current draw formulas (tile top-left at x * tile_w + offset_x),
+        Draw uses tile top-left at x * tile_w + offset_x;
         choosing offset_x/y like this places the center of the (0,0) zone at
         (WIDTH/2, HEIGHT/2).
         """
@@ -118,7 +118,7 @@ class Renderer:
             offset_x=self.offset_x,
             offset_y=self.offset_y,
         )
-            
+
     def _build_zone_layout(self) -> None:
         """World-space pixel target per zone plus current render offsets."""
         tile_w = self.assets.island.width
@@ -138,7 +138,7 @@ class Renderer:
         )
 
     def _build_context(self) -> RenderContext:
-        """Snapshot everything layers need for one frame (time, mouse, armada)."""
+        """Per-frame snapshot for layers (time, mouse, armada, etc.)."""
         assert self._zone_layout is not None
         assert self._drone_navigation_context is not None
         return RenderContext(
@@ -157,7 +157,7 @@ class Renderer:
         )
 
     def _spawn_armada(self) -> None:
-        """Plan routes and populate drones from GameWorld (fleet + fallback)."""
+        """Plan routes and spawn drones (fleet planner + fallback)."""
         assert self._zone_layout is not None
         route_planner = RoutePlanner(self._game_world)
         self._drone_navigation_context = DroneNavigationContext(
@@ -270,7 +270,7 @@ class InformationManager:
         return args.filepath
 
     def parse_input(self) -> None:
-        """Read and parse the map file into zones, connections, and drone count."""
+        """Parse the map file into zones, connections, and drone count."""
         try:
             my_parser = InputParser()
             my_parser.parse_lines(self._get_filepath)
@@ -299,4 +299,3 @@ class InformationManager:
             num_drones=self._num_drones,
         )
         Renderer(game_world=game_world, assets=assets).run()
-

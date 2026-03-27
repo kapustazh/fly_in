@@ -1,4 +1,4 @@
-"""Composable draw passes (water, map, drones, HUD) and shared render context."""
+"""Layers: water, map, drones, HUD, and shared render context."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class Colors(Enum):
 
 
 class LayerRenderError(Exception):
-    """Raised when a layer cannot render (missing glyph, bad map data, etc.)."""
+    """Raised when a layer cannot render (e.g. missing glyph)."""
 
     def __init__(self, detail: str) -> None:
         super().__init__(f"Layer render error: {detail}")
@@ -52,7 +52,7 @@ class RenderLayer(ABC):
 
     @abstractmethod
     def render(self, screen: Surface, context: RenderContext) -> None:
-        """Paint this layer onto *screen* using *context* (zones, time, assets)."""
+        """Paint this layer onto *screen* using *context*."""
         pass
 
     def get_current_sprite(
@@ -61,7 +61,7 @@ class RenderLayer(ABC):
         sprite: Any,
         animation: int = 150,
     ) -> Surface:
-        """Pick the animation frame for *sprite* from *current_time* and *animation* ms."""
+        """Pick *sprite* frame from *current_time* and *animation* (ms)."""
         return cast(
             Surface,
             sprite.frames[(current_time // animation) % sprite.num_frames],
@@ -98,7 +98,7 @@ class MapLayer(RenderLayer):
         color_name: str,
         current_time: int,
     ) -> pygame.Color | None:
-        """Turn a named or rainbow color into a pygame.Color, or None if unknown."""
+        """Resolve a named or rainbow color to pygame.Color, or None."""
         if color_name == "rainbow":
             hue = int(
                 (current_time % self.RAINBOW_CYCLE_MS)
@@ -119,7 +119,7 @@ class MapLayer(RenderLayer):
         base_surface: Surface,
         tint_color: pygame.Color,
     ) -> Surface:
-        """Return a copy of *base_surface* multiplied by *tint_color* (see TINT_ALPHA)."""
+        """Copy *base_surface* multiplied by *tint_color* (see TINT_ALPHA)."""
 
         tinted_surface = base_surface.copy()
 
@@ -146,7 +146,7 @@ class MapLayer(RenderLayer):
         screen: Surface,
         context: RenderContext,
     ) -> None:
-        """Draw each zone-to-zone link once as a sand-colored line between tile centers."""
+        """Draw each zone link once as a sand line between tile centers."""
         drawn: set[frozenset[str]] = set[frozenset[str]]()
         tile_w = context.assets.island.width
         half_w = context.assets.island.width // 2
@@ -193,7 +193,7 @@ class MapLayer(RenderLayer):
         screen: Surface,
         context: RenderContext,
     ) -> None:
-        """Blit island or obstacle tiles at grid positions, with optional color tint."""
+        """Blit island/obstacle tiles at grid positions; optional tint."""
         tile_w = context.assets.island.width
         for zone in context.zones.values():
             x, y = zone["coordinates"]
@@ -281,7 +281,7 @@ class DronesLayer(RenderLayer):
         self.last_time_ms = None
 
     def render(self, screen: Surface, context: RenderContext) -> None:
-        """Update all drones from elapsed time, then blit rotated drone frames."""
+        """Advance drones from elapsed time; blit rotated frames."""
         prev_ms = self.last_time_ms
         if prev_ms is None:
             delta_seconds = 0.0
@@ -339,7 +339,7 @@ class TextLayer(RenderLayer):
         y: int,
         strict: bool = True,
     ) -> None:
-        """Place *text* at (*x*, *y*); *strict* forbids missing glyphs (except space)."""
+        """Place *text* at (*x*, *y*); *strict* errors on missing glyphs."""
         self.text = text
         self.x = x
         self.y = y
@@ -379,12 +379,12 @@ class HUDLayer(RenderLayer):
     """Turn counter and restart hint aligned with the map legend panel."""
 
     def __init__(self, legend_x: int, legend_y: int) -> None:
-        """Match *legend_x*/*legend_y* to MapLegendLayer for consistent HUD layout."""
+        """Align HUD with MapLegendLayer using *legend_x* and *legend_y*."""
         self.legend_x = legend_x
         self.legend_y = legend_y
 
     def render(self, screen: Surface, context: RenderContext) -> None:
-        """Show synchronized turn count and PRESS R TO RESTART below the legend."""
+        """Turns, win, pause, and help lines under the legend."""
         synchronized_turn_count = (
             context.drone_armada.synchronized_turn_count()
         )
@@ -422,7 +422,10 @@ class HelpOverlayLayer(RenderLayer):
         if not context.show_help:
             return
 
-        overlay = pygame.Surface((context.width, context.height), pygame.SRCALPHA)
+        overlay = pygame.Surface(
+            (context.width, context.height),
+            pygame.SRCALPHA,
+        )
         overlay.fill(self.BG_COLOR)
         screen.blit(overlay, (0, 0))
 
@@ -461,8 +464,9 @@ class HelpOverlayLayer(RenderLayer):
             TextLayer(line, x, y, strict=False).render(screen, context)
             y += line_h
 
+
 class MapLegendLayer(RenderLayer):
-    """Wooden tile grid, icon legend (zone, hubs, obstacle), and easter-egg sprite."""
+    """Wood-tile legend: zone, hubs, obstacle icons, and easter egg."""
 
     BOARD_SIZE = 3
     ICON_SIZE = 36
@@ -544,7 +548,12 @@ class MapLegendLayer(RenderLayer):
             TextLayer(label, text_x, current_y).render(screen, context)
             current_y += self.ICON_SIZE + 10
 
-    def _draw_amogus(self, screen: Surface, context: RenderContext, coordinates: tuple[int, int]) -> None:
+    def _draw_amogus(
+        self,
+        screen: Surface,
+        context: RenderContext,
+        coordinates: tuple[int, int],
+    ) -> None:
         """Place the small amogus icon on the legend panel."""
         amogus = pygame.transform.scale(
             context.assets.amogus.surface, (self.ICON_SIZE, self.ICON_SIZE)
@@ -556,7 +565,7 @@ class MapLegendLayer(RenderLayer):
 
 
 class ZoneTooltipLayer(RenderLayer):
-    """Hover tooltip listing zone name, hub type, limits, and neighbor capacities."""
+    """Hover tooltip: zone name, hub type, limits, neighbor capacities."""
 
     PADDING: int = 8
     LINE_SPACING: int = 4

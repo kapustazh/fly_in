@@ -1,4 +1,4 @@
-"""Lightweight pygame wrappers: static sprites, filmstrips, and bitmap fonts."""
+"""Pygame helpers: sprites, filmstrips, and bitmap fonts."""
 
 import os
 
@@ -70,7 +70,7 @@ class Font(Sprite):
     )
 
     def __init__(self, surface: Surface):
-        """Create an empty glyph map; call prepare_frames before drawing text."""
+        """Empty glyph map; call prepare_frames before drawing."""
         super().__init__(surface)
         self.frames: dict[str, Surface] = {}
 

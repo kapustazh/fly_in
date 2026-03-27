@@ -1,4 +1,4 @@
-"""Parse the Fly-in map file: hubs, zone metadata, connections, and drone count."""
+"""Parse Fly-in map files: hubs, zone metadata, connections, drone count."""
 
 from collections import defaultdict
 from dataclasses import dataclass
@@ -92,7 +92,7 @@ class ParsingError(Exception):
 
 
 class InputParser:
-    """Incremental parser: parse_lines then parse_input (and parse_connections)."""
+    """Incremental parser: parse_lines, parse_input, parse_connections."""
 
     def __init__(self) -> None:
         self.zones: dict[str, dict[str, Any]] = defaultdict(dict)
@@ -110,7 +110,7 @@ class InputParser:
     def _parse_metadata(
         metadata: str, is_connection: bool
     ) -> ZoneMetadata | ConnectionMetadata:
-        """Parse key=value tokens inside bracket [...] into a metadata dataclass."""
+        """Parse key=value tokens in [...] into a metadata dataclass."""
         if not metadata:
             return ConnectionMetadata() if is_connection else ZoneMetadata()
 
@@ -159,7 +159,7 @@ class InputParser:
             raise FileReaderError("File not found")
 
     def parse_input(self) -> None:
-        """Parse hub lines, nb_drones, and connection lines; builds adjacency last."""
+        """Parse hubs, nb_drones, connections; build adjacency last."""
         pattern = (
             r"(start_hub|end_hub|hub):\s+"
             r"(\w+)\s+(-?\d+)\s+(-?\d+)"
@@ -222,7 +222,7 @@ class InputParser:
             raise ParsingError(str(err))
 
     def parse_connections(self) -> None:
-        """Expand raw_connections into bidirectional connections with metadata."""
+        """Expand raw_connections into bidirectional edges with metadata."""
         for (hub_one, hub_two), meta in self.raw_connections:
             if hub_one not in self.connections:
                 self.connections[hub_one] = {

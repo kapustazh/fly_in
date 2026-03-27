@@ -37,7 +37,7 @@ class TimedGraph:
     def zone_max_drones(
         zones: Mapping[str, Dict[str, Any]], zone_name: str
     ) -> int:
-        """Upper bound on drones that may occupy *zone_name* on the same turn."""
+        """Max drones that may share *zone_name* on one turn."""
         zone = zones.get(zone_name)
         if zone is None:
             return 1
@@ -67,7 +67,7 @@ class TurnOccupancyLedger:
         *,
         exempt_zone_capacity: frozenset[str],
     ) -> None:
-        """Track per-turn zone and link usage; *exempt_zone_capacity* skips zone caps."""
+        """Track per-turn zone/link use; *exempt_zone_capacity* skips caps."""
         self._zones = zones
         self._connections = connections
         self._exempt = exempt_zone_capacity
@@ -82,7 +82,7 @@ class TurnOccupancyLedger:
         return self._zone_use.get((zone_name, turn), 0) < cap
 
     def add_zone_turn(self, zone_name: str, turn: int) -> None:
-        """Record one drone occupying *zone_name* for *turn* (unless exempt)."""
+        """Record one drone in *zone_name* at *turn* (unless exempt)."""
         if zone_name in self._exempt:
             return
         key = (zone_name, turn)
@@ -91,7 +91,7 @@ class TurnOccupancyLedger:
     def can_use_link_during(
         self, zone_from: str, zone_to: str, t_start: int, t_end: int
     ) -> bool:
-        """True if the link stays under capacity for every turn in [*t_start*, *t_end*)."""
+        """True if link capacity holds each turn in [t_start, t_end)."""
         cap = TimedGraph.link_capacity(
             self._connections, zone_from, zone_to
         )
@@ -106,7 +106,7 @@ class TurnOccupancyLedger:
     def can_use_dest_zone_during(
         self, zone_to: str, t_start: int, t_end: int
     ) -> bool:
-        """True if the destination zone has spare capacity each turn of the move."""
+        """True if destination zone has spare capacity each turn."""
         if zone_to in self._exempt:
             return True
         cap = TimedGraph.zone_max_drones(self._zones, zone_to)
@@ -118,7 +118,7 @@ class TurnOccupancyLedger:
     def can_move(
         self, zone_from: str, zone_to: str, t_start: int, t_end: int
     ) -> bool:
-        """Whether a move *zone_from*→*zone_to* over [*t_start*, *t_end*) is allowed."""
+        """Whether move zone_from->zone_to over [t_start, t_end) is allowed."""
         return self.can_use_link_during(
             zone_from, zone_to, t_start, t_end
         ) and self.can_use_dest_zone_during(zone_to, t_start, t_end)
@@ -140,7 +140,7 @@ class TurnOccupancyLedger:
     def reserve_timed_state_chain(
         self, states: list[tuple[str, int]]
     ) -> None:
-        """Apply reserve_wait_turn and reserve_move for a full (zone, time) path."""
+        """Apply reserve_wait_turn and reserve_move along a timed path."""
         for i in range(len(states) - 1):
             z0, t0 = states[i]
             z1, t1 = states[i + 1]
@@ -179,10 +179,9 @@ class TimedPathfinder:
         *,
         max_time: int,
     ) -> tuple[list[str], list[tuple[str, int]]] | None:
-        """Find a minimum-cost timed path, or None if no route exists by *max_time*.
+        """Minimum-cost timed path, or None past *max_time*.
 
-        Returns the zone sequence and a list of (zone, time) states for
-        booking capacity.
+        Returns zone sequence and (zone, time) states for reservations.
         """
         zones = game_world.zones
         connections = game_world.connections
