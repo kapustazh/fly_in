@@ -24,6 +24,7 @@ from game import GameWorld
 from map_layout import ZoneLayout
 from pathfinding import RoutePlanner
 from drone import DroneArmada, DroneNavigationContext
+from simulation_output import format_simulation_output_by_turn
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 from pygame.surface import Surface  # noqa: E402
@@ -63,6 +64,8 @@ class Renderer:
         self._offset_y_f: float = 0.0
         self.show_help: bool = False
         self.paused: bool = False
+        self._simulation_output_by_turn: list[tuple[int, str]] = []
+        self._simulation_output_emit_index: int = 0
         legend_x = self.WIDTH // 32
         legend_y = self.HEIGHT // 4
         self.layers: list[RenderLayer] = [
@@ -171,6 +174,13 @@ class Renderer:
             navigation_context=self._drone_navigation_context,
         )
         self.drone_armada.launch_armada(self._game_world, route_planner)
+        assert self._drone_navigation_context is not None
+        self._simulation_output_by_turn = format_simulation_output_by_turn(
+            self.drone_armada.drones,
+            self._game_world.end_zone_name,
+            self._drone_navigation_context.movement_model,
+        )
+        self._simulation_output_emit_index = 0
 
     def _restart_simulation(self) -> None:
         """Replan and reset drone motion timing (e.g. after pressing R)."""
@@ -212,6 +222,18 @@ class Renderer:
         if dx != 0.0 or dy != 0.0:
             self._move_camera(dx, dy)
 
+    def _emit_due_simulation_lines(self) -> None:
+        """Print VII.5 lines for turns up to the current planner clock."""
+        if self.paused:
+            return
+        turn_floor = int(self.drone_armada.planner_turn_time)
+        entries = self._simulation_output_by_turn
+        idx = self._simulation_output_emit_index
+        while idx < len(entries) and entries[idx][0] <= turn_floor:
+            print(entries[idx][1])
+            idx += 1
+        self._simulation_output_emit_index = idx
+
     def run(self) -> None:
         """Load assets, enter the event/render loop at 60 FPS until quit."""
         self._init_pygame()
@@ -233,6 +255,7 @@ class Renderer:
                 context = self._build_context()
                 for layer in self.layers:
                     layer.render(self.screen, context)
+                self._emit_due_simulation_lines()
                 pygame.display.flip()
                 self.clock.tick(60)
         except LayerRenderError as e:

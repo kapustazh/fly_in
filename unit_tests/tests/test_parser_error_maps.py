@@ -20,7 +20,10 @@ else:
 
 
 EXPECTED_ERROR_SUBSTRINGS: dict[str, str] = {
-    "error_negative_drones.txt": "Number of drones can not be negative",
+    "error_negative_drones.txt": "positive integer (got -1)",
+    "error_nb_drones_zero.txt": "positive integer (got 0)",
+    "error_nb_drones_not_first.txt": "first non-comment line must",
+    "error_duplicate_nb_drones.txt": "nb_drones must appear only once",
     "error_invalid_zone_type.txt": "is not a valid ZoneTypes",
     "error_invalid_hub_metadata_key.txt": "Invalid 'speed'",
     "error_invalid_conn_metadata_key.txt": "Invalid 'speed'",
@@ -49,17 +52,40 @@ class ParserErrorFixturesTests(unittest.TestCase):
                     self._parse_file(filename)
                 self.assertIn(message_substring, str(cm.exception))
 
+    def test_parsing_errors_include_line_number(self) -> None:
+        parser = InputParser()
+        parser.parse_lines(str(MAPS_DIR / "error_negative_drones.txt"))
+        with self.assertRaises(ParsingError) as cm:
+            parser.parse_input()
+        self.assertRegex(str(cm.exception), r"line 1:")
+
     def test_all_error_fixture_files_are_covered(self) -> None:
         fixture_names = {
             p.name for p in MAPS_DIR.glob("error_*.txt") if p.is_file()
         }
         self.assertEqual(fixture_names, set(EXPECTED_ERROR_SUBSTRINGS.keys()))
 
-    def test_empty_file_is_allowed(self) -> None:
-        parser = self._parse_file("empty.txt")
-        self.assertEqual(parser.number_of_drones, 0)
-        self.assertEqual(parser.get_zones, {})
-        self.assertEqual(parser.connections, {})
+    def test_empty_file_requires_nb_drones(self) -> None:
+        parser = InputParser()
+        parser.parse_lines(str(MAPS_DIR / "empty.txt"))
+        with self.assertRaises(ParsingError) as cm:
+            parser.parse_input()
+        self.assertIn("non-comment lines", str(cm.exception))
+
+    def test_zone_name_with_dot_parses(self) -> None:
+        """VII.4: zone names are not limited to [A-Za-z0-9_]."""
+        text = (
+            "nb_drones: 1\n"
+            "start_hub: roof.v1 0 0\n"
+            "end_hub: goal.area 1 0\n"
+            "connection: roof.v1-goal.area\n"
+        )
+        parser = InputParser()
+        parser.parsed_lines = text.splitlines(keepends=True)
+        parser.parse_input()
+        self.assertEqual(parser.number_of_drones, 1)
+        self.assertIn("roof.v1", parser.get_zones)
+        self.assertIn("goal.area", parser.get_zones)
 
     def test_known_valid_maps_parse(self) -> None:
         for filename in ("two_zones_valid.txt", "test_map.txt"):

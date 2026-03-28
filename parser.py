@@ -159,62 +159,110 @@ class InputParser:
             raise FileReaderError("File not found")
 
     def parse_input(self) -> None:
-        """Parse hubs, nb_drones, connections; build adjacency last."""
+        """Parse map file (VII.4).
+
+        The first non-empty, non-comment line must be ``nb_drones:`` with a
+        positive integer. Zone names may use any characters except ASCII
+        whitespace and hyphen (used as the connection separator).
+        """
+        zone_name = r"[^\s-]+"
         pattern = (
             r"(start_hub|end_hub|hub):\s+"
-            r"(\w+)\s+(-?\d+)\s+(-?\d+)"
+            f"({zone_name})\\s+(-?\\d+)\\s+(-?\\d+)"
             r"(?:\s*\[([^\]]+)\])?"
         )
-        pattern_connection = r"connection:\s+(\w+)-(\w+)(?:\s*\[([^\]]+)\])?"
+        pattern_connection = (
+            r"connection:\s+"
+            f"({zone_name})-({zone_name})"
+            r"(?:\s*\[([^\]]+)\])?"
+        )
         try:
             seen_connections: set[frozenset[str]] = set()
-            for line in self.parsed_lines:
-                if not line.strip() or line.startswith("#"):
+            nb_drones_seen = False
+            for line_num, raw in enumerate(self.parsed_lines, start=1):
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if not nb_drones_seen:
+                    if not line.startswith("nb_drones:"):
+                        raise ValueError(
+                            f"line {line_num}: first non-comment line must "
+                            "be nb_drones: <positive_integer>"
+                        )
+                    try:
+                        self.number_of_drones = int(
+                            line.split(":", 1)[1].strip(),
+                        )
+                    except (IndexError, ValueError):
+                        raise ValueError(
+                            f"line {line_num}: nb_drones requires an integer "
+                            "after the colon"
+                        )
+                    if self.number_of_drones < 1:
+                        raise ValueError(
+                            f"line {line_num}: nb_drones must be a positive "
+                            f"integer (got {self.number_of_drones})"
+                        )
+                    nb_drones_seen = True
                     continue
                 if line.startswith("nb_drones:"):
-                    self.number_of_drones = int(line.split(":")[1].strip())
-                    if self.number_of_drones < 0:
-                        raise ValueError(
-                            "Number of drones can not be negative "
-                            + f"{self.number_of_drones}"
+                    raise ValueError(
+                        f"line {line_num}: nb_drones must appear only once, "
+                        "as the first non-comment line"
+                    )
+                match = re.match(pattern, line)
+                if match:
+                    hub_type, name, x, y, metadata = match.groups()
+                    try:
+                        zone_meta = InputParser._parse_metadata(
+                            metadata=metadata,
+                            is_connection=False,
                         )
+                    except ValueError as e:
+                        raise ValueError(f"line {line_num}: {e}")
+                    self.zones[name].update(
+                        {
+                            "hub_type": hub_type,
+                            "coordinates": (int(x), int(y)),
+                            "metadata": zone_meta,
+                        }
+                    )
                 else:
-                    match = re.match(pattern, line)
+                    match = re.match(pattern_connection, line)
                     if match:
-                        hub_type, name, x, y, metadata = match.groups()
-                        self.zones[name].update(
-                            {
-                                "hub_type": hub_type,
-                                "coordinates": (int(x), int(y)),
-                                "metadata": InputParser._parse_metadata(
-                                    metadata=metadata, is_connection=False
-                                ),
-                            }
+                        hub_one, hub_two, metadata = match.groups()
+                        pair_key = frozenset({hub_one, hub_two})
+                        if hub_one == hub_two:
+                            raise ValueError(
+                                f"line {line_num}: Self connection "
+                                f"'{hub_one}-{hub_two}' is forbidden"
+                            )
+                        if pair_key in seen_connections:
+                            raise ValueError(
+                                f"line {line_num}: Duplicate connection "
+                                f"'{hub_one}-{hub_two}' found"
+                            )
+                        seen_connections.add(pair_key)
+                        try:
+                            conn_meta = InputParser._parse_metadata(
+                                metadata=metadata,
+                                is_connection=True,
+                            )
+                        except ValueError as e:
+                            raise ValueError(f"line {line_num}: {e}")
+                        self.raw_connections.append(
+                            ((hub_one, hub_two), conn_meta),
                         )
                     else:
-                        match = re.match(pattern_connection, line)
-                        if match:
-                            hub_one, hub_two, metadata = match.groups()
-                            pair_key = frozenset({hub_one, hub_two})
-                            if hub_one == hub_two:
-                                raise ValueError(
-                                    f"Self connection '{hub_one}-{hub_two}' "
-                                    + "is forbidden"
-                                )
-                            if pair_key in seen_connections:
-                                raise ValueError(
-                                    "Duplicate connection "
-                                    + f"'{hub_one}-{hub_two}' found"
-                                )
-                            seen_connections.add(pair_key)
-                            self.raw_connections.append(
-                                (
-                                    (hub_one, hub_two),
-                                    InputParser._parse_metadata(
-                                        metadata=metadata, is_connection=True
-                                    ),
-                                ),
-                            )
+                        raise ValueError(
+                            f"line {line_num}: unrecognized line syntax: "
+                            f"{line!r}"
+                        )
+            if not nb_drones_seen:
+                raise ValueError(
+                    "expected nb_drones: <positive_integer> as the first "
+                    "non-comment line (file has no non-comment lines)"
+                )
             if self.raw_connections:
                 self.parse_connections()
 

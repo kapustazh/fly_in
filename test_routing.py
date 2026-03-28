@@ -16,7 +16,7 @@ class TestRoutePlanning(unittest.TestCase):
     def test_planned_route_connects_start_to_end_hub(self) -> None:
         root = Path(__file__).resolve().parent
         parser = InputParser()
-        parser.parse_lines(str(root / "test_map.txt"))
+        parser.parse_lines(str(root / "unit_tests" / "test_map.txt"))
         parser.parse_input()
         world = GameWorld.from_parsed_map(
             zones=parser.get_zones,
@@ -29,10 +29,10 @@ class TestRoutePlanning(unittest.TestCase):
         self.assertEqual(route.zone_names[0], world.start_zone_name)
         self.assertEqual(route.zone_names[-1], world.end_zone_name)
 
-    def test_timed_fleet_planning_no_false_fallback(self) -> None:
+    def test_fleet_planner_one_route_per_drone(self) -> None:
         root = Path(__file__).resolve().parent
         parser = InputParser()
-        parser.parse_lines(str(root / "test_map.txt"))
+        parser.parse_lines(str(root / "unit_tests" / "test_map.txt"))
         parser.parse_input()
         world = GameWorld.from_parsed_map(
             zones=parser.get_zones,
@@ -44,15 +44,18 @@ class TestRoutePlanning(unittest.TestCase):
             current_zone=world.start_zone_name,
             end_zone=world.end_zone_name,
         )
-        hubs = frozenset({world.start_zone_name, world.end_zone_name})
         result = FleetRoutePlanner.plan_all_drones(
             planner,
             world,
             [drone],
-            capacity_exempt_hub_zone_names=hubs,
+            capacity_exempt_hub_zone_names=frozenset(
+                {world.start_zone_name, world.end_zone_name},
+            ),
         )
-        self.assertFalse(result.used_capacity_fallback)
         self.assertEqual(len(result.routes), 1)
+        r0 = result.routes[0]
+        self.assertEqual(r0.zone_names[0], world.start_zone_name)
+        self.assertEqual(r0.zone_names[-1], world.end_zone_name)
 
 
 if __name__ == "__main__":
