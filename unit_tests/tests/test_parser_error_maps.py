@@ -87,6 +87,20 @@ class ParserErrorFixturesTests(unittest.TestCase):
         self.assertIn("roof.v1", parser.get_zones)
         self.assertIn("goal.area", parser.get_zones)
 
+    def test_connection_metadata_without_space_before_bracket(self) -> None:
+        """connection: a-b[max_link=1] must not treat 'b[max_link=1]' as name."""
+        text = (
+            "nb_drones: 1\n"
+            "start_hub: hub 0 0\n"
+            "end_hub: goal 1 0\n"
+            "connection: hub-goal[max_link_capacity=1]\n"
+        )
+        parser = InputParser()
+        parser.parsed_lines = text.splitlines(keepends=True)
+        parser.parse_input()
+        self.assertIn("goal", parser.get_zones)
+        self.assertIn("goal", parser.connections["hub"]["connections"])
+
     def test_known_valid_maps_parse(self) -> None:
         for filename in ("two_zones_valid.txt", "test_map.txt"):
             with self.subTest(filename=filename):

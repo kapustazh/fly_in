@@ -5,7 +5,7 @@ from __future__ import annotations
 import heapq
 from dataclasses import dataclass
 from math import hypot, inf
-from typing import Any, Dict
+from typing import Any
 
 from collections.abc import Mapping
 
@@ -47,8 +47,8 @@ class RoutePlanner:
 
     def __init__(self, game_world: GameWorld) -> None:
         """Index zones and connections and build a ZoneMovementModel."""
-        self._zones: Mapping[str, Dict[str, Any]] = game_world.zones
-        self._connections: Mapping[str, Dict[str, Any]] = (
+        self._zones: Mapping[str, dict[str, Any]] = game_world.zones
+        self._connections: Mapping[str, dict[str, Any]] = (
             game_world.connections
         )
         self._movement = ZoneMovementModel(game_world.zones)
@@ -77,7 +77,7 @@ class RoutePlanner:
             if not movement.is_passable(end_zone):
                 raise PathfindingError(f"End zone '{end_zone}' is blocked")
         except RoutingCostsError as e:
-            raise PathfindingError(str(e)) from e
+            raise PathfindingError(str(e))
 
         open_heap: list[_AStarHeapEntry] = []
         came_from: dict[str, str] = {}
@@ -114,7 +114,7 @@ class RoutePlanner:
                         continue
                     enter_cost = movement.enter_cost(neighbor_zone)
                 except RoutingCostsError as e:
-                    raise PathfindingError(str(e)) from e
+                    raise PathfindingError(str(e))
                 tentative_g = g_score[current_zone] + enter_cost
                 if tentative_g >= g_score[neighbor_zone]:
                     continue
@@ -140,32 +140,32 @@ class RoutePlanner:
 
     @staticmethod
     def _heuristic(
-        zones: Mapping[str, Dict[str, Any]], from_zone: str, to_zone: str
+        zones: Mapping[str, dict[str, Any]], from_zone: str, to_zone: str
     ) -> float:
         """Straight-line grid distance between zone centers (A* heuristic)."""
-        ax, ay = RoutePlanner._grid_xy(zones, from_zone)
-        bx, by = RoutePlanner._grid_xy(zones, to_zone)
-        return hypot(ax - bx, ay - by)
+        from_x, from_y = RoutePlanner._grid_xy(zones, from_zone)
+        to_x, to_y = RoutePlanner._grid_xy(zones, to_zone)
+        return hypot(from_x - to_x, from_y - to_y)
 
     @staticmethod
     def _grid_xy(
-        zones: Mapping[str, Dict[str, Any]], zone_name: str
+        zones: Mapping[str, dict[str, Any]], zone_name: str
     ) -> tuple[int, int]:
         """Integer (x, y) tile coordinates for *zone_name*."""
-        z = zones.get(zone_name)
-        if z is None:
+        zone_record = zones.get(zone_name)
+        if zone_record is None:
             raise PathfindingError(f"Unknown zone '{zone_name}'")
-        c = z.get("coordinates")
-        if c is None:
+        coordinates = zone_record.get("coordinates")
+        if coordinates is None:
             raise PathfindingError(
-                f"Wrong coordinates '{c} of the zone: '{zone_name}'"
+                f"Zone '{zone_name}' is missing integer coordinates"
             )
-        gx, gy = c
-        if not isinstance(gx, int) or not isinstance(gy, int):
+        grid_x, grid_y = coordinates
+        if not isinstance(grid_x, int) or not isinstance(grid_y, int):
             raise PathfindingError(
-                f"Zone '{zone_name}' has invalid coordinates {c}"
+                f"Zone '{zone_name}' has invalid coordinates {coordinates!r}"
             )
-        return (gx, gy)
+        return (grid_x, grid_y)
 
     @staticmethod
     def _reconstruct_path(

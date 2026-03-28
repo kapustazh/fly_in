@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 from collections.abc import Mapping
 import pygame
 from assets import AssetManager
 from enum import Enum
 
-from drone import DroneArmada, DroneNavigationContext
+from drone import DroneArmada, DroneNavigationContext, SECONDS_PER_DISCRETE_TURN
+from sprites import AnimatedSprite
 from map_layout import ZoneLayout
 from pygame.surface import Surface
 
@@ -58,14 +59,12 @@ class RenderLayer(ABC):
     def get_current_sprite(
         self,
         current_time: int,
-        sprite: Any,
+        sprite: AnimatedSprite,
         animation: int = 150,
     ) -> Surface:
         """Pick *sprite* frame from *current_time* and *animation* (ms)."""
-        return cast(
-            Surface,
-            sprite.frames[(current_time // animation) % sprite.num_frames],
-        )
+        frame_index = (current_time // animation) % sprite.num_frames
+        return sprite.frames[frame_index]
 
 
 class WaterLayer(RenderLayer):
@@ -264,8 +263,8 @@ class FlagsLayer(RenderLayer):
 class DronesLayer(RenderLayer):
     """Advances drone simulation each frame and draws each drone sprite."""
 
-    DRONE_SPEED_PX_PER_SEC = 72.0
-    WAIT_AT_NODE_SEC = 0.4
+    DRONE_SPEED_PX_PER_SEC = 108.0
+    WAIT_AT_NODE_SEC = SECONDS_PER_DISCRETE_TURN
 
     # Nudge sprite down so it sits on tile (layout uses tile centers).
     DRONE_BLIT_ANCHOR_DOWN_PX = 0
@@ -453,9 +452,10 @@ class HelpOverlayLayer(RenderLayer):
         )
         total_text_height = line_h * len(lines)
 
-        # Center the help block for a "book page" look.
-        x = max(self.PADDING, (context.width - max_text_width) // 2)
-        y = max(self.PADDING, (context.height - total_text_height) // 2)
+        center_x = (context.width - max_text_width) // 2
+        x = center_x if center_x >= self.PADDING else self.PADDING
+        center_y = (context.height - total_text_height) // 2
+        y = center_y if center_y >= self.PADDING else self.PADDING
 
         for line in lines:
             if line == "":

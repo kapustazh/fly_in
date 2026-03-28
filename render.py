@@ -4,7 +4,7 @@ from parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
 import os
-from typing import Any, Dict
+from typing import Any
 from collections.abc import Mapping
 from assets import AssetManager, AssetError
 from layers import (
@@ -100,10 +100,14 @@ class Renderer:
         self._offset_x_f = float(self.offset_x)
         self._offset_y_f = float(self.offset_y)
 
-    def _move_camera(self, dx: float, dy: float) -> None:
-        """Move the camera by (dx, dy) screen pixels."""
-        self._offset_x_f += dx
-        self._offset_y_f += dy
+    def _move_camera(
+        self,
+        camera_delta_x: float,
+        camera_delta_y: float,
+    ) -> None:
+        """Move the camera by the given offset in screen pixels."""
+        self._offset_x_f += camera_delta_x
+        self._offset_y_f += camera_delta_y
         new_off_x = int(round(self._offset_x_f))
         new_off_y = int(round(self._offset_y_f))
         delta_x = new_off_x - self.offset_x
@@ -129,11 +133,10 @@ class Renderer:
         half_h = self.assets.island.height // 2
         pixel_center_by_zone: dict[str, tuple[float, float]] = {}
         for zone_name, zone in self.zones.items():
-            x, y = zone["coordinates"]
-            # World-space (no screen offset baked in).
-            px = float(x * tile_w + half_w)
-            py = float(y * tile_w + half_h)
-            pixel_center_by_zone[zone_name] = (px, py)
+            tile_x, tile_y = zone["coordinates"]
+            center_x = float(tile_x * tile_w + half_w)
+            center_y = float(tile_y * tile_w + half_h)
+            pixel_center_by_zone[zone_name] = (center_x, center_y)
         self._zone_layout = ZoneLayout(
             pixel_center_by_zone=pixel_center_by_zone,
             offset_x=self.offset_x,
@@ -174,7 +177,6 @@ class Renderer:
             navigation_context=self._drone_navigation_context,
         )
         self.drone_armada.launch_armada(self._game_world, route_planner)
-        assert self._drone_navigation_context is not None
         self._simulation_output_by_turn = format_simulation_output_by_turn(
             self.drone_armada.drones,
             self._game_world.end_zone_name,
@@ -209,30 +211,33 @@ class Renderer:
         """Smooth camera movement while arrow/WASD keys are held."""
         keys = pygame.key.get_pressed()
         camera_speed = 800.0
-        dx = 0.0
-        dy = 0.0
+        camera_delta_x = 0.0
+        camera_delta_y = 0.0
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            dx += camera_speed * dt_seconds
+            camera_delta_x += camera_speed * dt_seconds
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            dx -= camera_speed * dt_seconds
+            camera_delta_x -= camera_speed * dt_seconds
         if keys[pygame.K_UP] or keys[pygame.K_w]:
-            dy += camera_speed * dt_seconds
+            camera_delta_y += camera_speed * dt_seconds
         if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            dy -= camera_speed * dt_seconds
-        if dx != 0.0 or dy != 0.0:
-            self._move_camera(dx, dy)
+            camera_delta_y -= camera_speed * dt_seconds
+        if camera_delta_x != 0.0 or camera_delta_y != 0.0:
+            self._move_camera(camera_delta_x, camera_delta_y)
 
     def _emit_due_simulation_lines(self) -> None:
         """Print VII.5 lines for turns up to the current planner clock."""
         if self.paused:
             return
         turn_floor = int(self.drone_armada.planner_turn_time)
-        entries = self._simulation_output_by_turn
-        idx = self._simulation_output_emit_index
-        while idx < len(entries) and entries[idx][0] <= turn_floor:
-            print(entries[idx][1])
-            idx += 1
-        self._simulation_output_emit_index = idx
+        pending_lines = self._simulation_output_by_turn
+        emit_index = self._simulation_output_emit_index
+        while (
+            emit_index < len(pending_lines)
+            and pending_lines[emit_index][0] <= turn_floor
+        ):
+            print(pending_lines[emit_index][1])
+            emit_index += 1
+        self._simulation_output_emit_index = emit_index
 
     def run(self) -> None:
         """Load assets, enter the event/render loop at 60 FPS until quit."""
@@ -271,8 +276,8 @@ class InformationManager:
     """CLI entry: parse map file, build GameWorld, start the Renderer."""
 
     def __init__(self) -> None:
-        self._zones: Mapping[str, Dict[str, Any]] = {}
-        self._connections: Mapping[str, Dict[str, Any]] = {}
+        self._zones: Mapping[str, dict[str, Any]] = {}
+        self._connections: Mapping[str, dict[str, Any]] = {}
         self._num_drones: int = 0
 
     @property
@@ -295,14 +300,14 @@ class InformationManager:
     def parse_input(self) -> None:
         """Parse the map file into zones, connections, and drone count."""
         try:
-            my_parser = InputParser()
-            my_parser.parse_lines(self._get_filepath)
-            my_parser.parse_input()
-            if not my_parser.get_zones or not my_parser.connections:
+            map_parser = InputParser()
+            map_parser.parse_lines(self._get_filepath)
+            map_parser.parse_input()
+            if not map_parser.get_zones or not map_parser.connections:
                 raise ParsingError("No zones or connections provided")
-            self._zones = my_parser.get_zones
-            self._connections = my_parser.connections
-            self._num_drones = my_parser.number_of_drones
+            self._zones = map_parser.get_zones
+            self._connections = map_parser.connections
+            self._num_drones = map_parser.number_of_drones
         except (FileReaderError, ParsingError, Exception) as e:
             print(e)
             sys.exit(1)
@@ -311,11 +316,6 @@ class InformationManager:
         """Parse input, construct the world, and run the game window."""
         self.parse_input()
         assets = AssetManager()
-        # import pprint
-
-        # pprint.pprint(self._zones)
-        # pprint.pprint(self._connections)
-        # pprint.pprint(self._num_drones)
         game_world = GameWorld.from_parsed_map(
             zones=self._zones,
             connections=self._connections,

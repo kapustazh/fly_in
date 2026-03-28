@@ -161,11 +161,12 @@ class InputParser:
     def parse_input(self) -> None:
         """Parse map file (VII.4).
 
-        The first non-empty, non-comment line must be ``nb_drones:`` with a
+        The first non-empty, non-comment line must be nb_drones: with a
         positive integer. Zone names may use any characters except ASCII
-        whitespace and hyphen (used as the connection separator).
+        whitespace, hyphen (connection separator), or square brackets
+        (metadata).
         """
-        zone_name = r"[^\s-]+"
+        zone_name = r"[^][\s-]+"
         pattern = (
             r"(start_hub|end_hub|hub):\s+"
             f"({zone_name})\\s+(-?\\d+)\\s+(-?\\d+)"
@@ -266,8 +267,8 @@ class InputParser:
             if self.raw_connections:
                 self.parse_connections()
 
-        except ValueError as err:
-            raise ParsingError(str(err))
+        except ValueError as e:
+            raise ParsingError(str(e))
 
     def parse_connections(self) -> None:
         """Expand raw_connections into bidirectional edges with metadata."""

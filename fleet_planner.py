@@ -32,8 +32,8 @@ class FleetRoutePlanner:
     @staticmethod
     def _max_time_budget(game_world: GameWorld, num_drones: int) -> int:
         """Upper bound on simulated turns for timed search (map + fleet)."""
-        nz = max(1, len(game_world.zones))
-        return min(15_000, 300 + num_drones * 250 + nz * 80)
+        zone_count = len(game_world.zones)
+        return min(15_000, 300 + num_drones * 250 + zone_count * 80)
 
     @staticmethod
     def plan_all_drones(
@@ -83,6 +83,7 @@ class FleetRoutePlanner:
     ) -> FleetPlanResult:
         """Plan each drone alone; ignore shared capacity (overlap ok)."""
         routes = [
-            route_planner.plan(d.current_zone, d.end_zone) for d in drones
+            route_planner.plan(drone.current_zone, drone.end_zone)
+            for drone in drones
         ]
         return FleetPlanResult(routes=routes, used_capacity_fallback=True)

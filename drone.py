@@ -11,6 +11,11 @@ from map_layout import ZoneLayout
 from pathfinding import PlannedRoute, RoutePlanner
 from routing_costs import ZoneMovementModel
 
+# Real seconds for one discrete simulation turn. Used for planner_turn_time,
+# node waits, and timed-route speed budgets. Raise for slower pacing; keep
+# DronesLayer.WAIT_AT_NODE_SEC equal to this value.
+SECONDS_PER_DISCRETE_TURN: float = 0.75
+
 
 @dataclass(frozen=True)
 class DroneNavigationContext:
@@ -58,11 +63,11 @@ class Drone:
     ) -> None:
         """Start following a path from the armada."""
         self.zone_path = planned_route.zone_names
-        ts = planned_route.timed_states
-        if ts is not None:
-            if len(ts) != len(self.zone_path):
+        timed_states_tuple = planned_route.timed_states
+        if timed_states_tuple is not None:
+            if len(timed_states_tuple) != len(self.zone_path):
                 raise ValueError("timed_states and zone_path length mismatch")
-            self.planned_timed_states = list(ts)
+            self.planned_timed_states = list(timed_states_tuple)
         else:
             self.planned_timed_states = None
         self.pixel_position = (
@@ -99,23 +104,29 @@ class Drone:
         path = self.zone_path
         if self._arrived or not path:
             return (0.0, 0.0)
-        i = self._next_zone_index
-        while i < len(path) and path[i] == self.current_zone:
-            i += 1
+        path_index = self._next_zone_index
+        while path_index < len(path) and path[path_index] == self.current_zone:
+            path_index += 1
 
         layout = navigation_context.layout
-        px = layout.pixel_center_for_zone_name
+        pixel_center = layout.pixel_center_for_zone_name
 
-        if i >= len(path):
+        if path_index >= len(path):
             if len(path) >= 2:
-                a = px(path[-2])
-                b = px(path[-1])
-                return (b[0] - a[0], b[1] - a[1])
+                previous_center = pixel_center(path[-2])
+                last_center = pixel_center(path[-1])
+                return (
+                    last_center[0] - previous_center[0],
+                    last_center[1] - previous_center[1],
+                )
             return (1.0, 0.0)
 
-        dest = px(path[i])
-        origin = px(self.current_zone)
-        return (dest[0] - origin[0], dest[1] - origin[1])
+        destination_center = pixel_center(path[path_index])
+        origin_center = pixel_center(self.current_zone)
+        return (
+            destination_center[0] - origin_center[0],
+            destination_center[1] - origin_center[1],
+        )
 
     def update(
         self,
@@ -152,7 +163,9 @@ class Drone:
         """Return True if this frame is spent waiting at a node."""
         if self._wait_remaining <= 0:
             return False
-        self._wait_remaining = max(0.0, self._wait_remaining - delta_seconds)
+        self._wait_remaining -= delta_seconds
+        if self._wait_remaining < 0.0:
+            self._wait_remaining = 0.0
         return True
 
     def _step_toward_next_path_zone(
@@ -170,7 +183,7 @@ class Drone:
         if next_zone_on_path == self.current_zone:
             self.cumulative_simulation_turns += 1
             self._next_zone_index += 1
-            self._wait_remaining = wait_at_node_sec * 1.7
+            self._wait_remaining = wait_at_node_sec
             if self._next_zone_index >= len(self.zone_path):
                 self._arrived = True
             return
@@ -196,14 +209,12 @@ class Drone:
 
     def _can_start_timed_step(self, planner_turn_time: float) -> bool:
         """Gate simulation by planner turn when timed states are present."""
-        pts = self.planned_timed_states
-        if pts is None:
+        timed_states = self.planned_timed_states
+        if timed_states is None:
             return True
-        k = self._next_zone_index
-        t_start = pts[k - 1][1]
-        # Planner reserves link/zone occupancy in discrete turns.
-        # Don't start this step before the reserved start turn.
-        return planner_turn_time >= t_start
+        step_index = self._next_zone_index
+        reserved_start_turn = timed_states[step_index - 1][1]
+        return planner_turn_time >= reserved_start_turn
 
     def _effective_move_speed(
         self,
@@ -212,14 +223,16 @@ class Drone:
         wait_at_node_sec: float,
     ) -> float:
         """Minimum speed needed to finish inside the reserved timed window."""
-        pts = self.planned_timed_states
-        if pts is None:
+        timed_states = self.planned_timed_states
+        if timed_states is None:
             return speed_px_per_sec
-        k = self._next_zone_index
-        t_end = pts[k][1]
-        t_start = pts[k - 1][1]
-        dt_turns = max(1, t_end - t_start)
-        sec_budget = dt_turns * wait_at_node_sec
+        step_index = self._next_zone_index
+        turn_at_arrival = timed_states[step_index][1]
+        turn_at_step_start = timed_states[step_index - 1][1]
+        turn_span = turn_at_arrival - turn_at_step_start
+        if turn_span < 1:
+            turn_span = 1
+        sec_budget = turn_span * wait_at_node_sec
         if sec_budget <= 0.0:
             return speed_px_per_sec
         cur_x, cur_y = self.pixel_position
@@ -236,8 +249,10 @@ class Drone:
     ) -> None:
         """Apply simulation bookkeeping after reaching the next zone."""
         self.current_zone = next_zone_on_path
-        mm = navigation_context.movement_model
-        enter_turn_weight = mm.simulation_turn_weight(next_zone_on_path)
+        movement_model = navigation_context.movement_model
+        enter_turn_weight = movement_model.simulation_turn_weight(
+            next_zone_on_path
+        )
         self.cumulative_simulation_turns += enter_turn_weight
         self._next_zone_index += 1
         if self._next_zone_index >= len(self.zone_path):
@@ -255,22 +270,22 @@ class Drone:
         current_x, current_y = self.pixel_position
         target_x, target_y = target_position
 
-        dx = target_x - current_x
-        dy = target_y - current_y
-        distance = hypot(dx, dy)
+        delta_x = target_x - current_x
+        delta_y = target_y - current_y
+        distance = hypot(delta_x, delta_y)
 
         if distance == 0.0:
             return True
 
-        step = speed_px_per_sec * delta_seconds
-        if step >= distance:
+        travel_this_frame = speed_px_per_sec * delta_seconds
+        if travel_this_frame >= distance:
             self.pixel_position = (target_x, target_y)
             return True
 
-        ratio = step / distance
+        fraction = travel_this_frame / distance
         self.pixel_position = (
-            current_x + dx * ratio,
-            current_y + dy * ratio,
+            current_x + delta_x * fraction,
+            current_y + delta_y * fraction,
         )
         return False
 
@@ -377,11 +392,15 @@ class DroneArmada:
         """Min cumulative turns among active drones (weighted zone costs)."""
         if not self.drones:
             return 0
-        active = [d for d in self.drones if not d.has_arrived]
-        if active:
-            return min(d.cumulative_simulation_turns for d in active)
-        return max(d.cumulative_simulation_turns for d in self.drones)
+        active_drones = [
+            drone for drone in self.drones if not drone.has_arrived
+        ]
+        if active_drones:
+            return min(
+                drone.cumulative_simulation_turns for drone in active_drones
+            )
+        return max(drone.cumulative_simulation_turns for drone in self.drones)
 
     def all_finished(self) -> bool:
         """True when all drones have arrived at the end zone."""
-        return all(d.has_arrived for d in self.drones)
+        return all(drone.has_arrived for drone in self.drones)

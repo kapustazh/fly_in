@@ -3,9 +3,9 @@
 Each non-empty simulation turn is one output line. On a line, list every
 drone that moves that turn, space-separated. Tokens:
 
-  * ``D<ID>-<zone>`` — drone enters or is reported at destination *zone*.
-  * ``D<ID>-<from>-<to>`` — drone still in transit on the *from*–*to* edge
-    toward a multi-turn destination (restricted / slow zones in this game).
+  * D<ID>-<zone>: drone enters or is reported at that destination zone.
+  * D<ID>-<from>-<to>: drone still crossing the edge between two zones
+    (multi-turn legs, e.g. restricted zones in this project).
 
 Drones that do not move on a turn are omitted. After a drone reaches the end
 zone it is delivered and omitted from later lines. Output stops once every
@@ -14,12 +14,8 @@ drone has reached the end zone.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from drone import Drone
 from routing_costs import ZoneMovementModel
-
-if TYPE_CHECKING:
-    from drone import Drone
 
 
 def format_simulation_output(
@@ -28,11 +24,12 @@ def format_simulation_output(
     movement_model: ZoneMovementModel,
 ) -> list[str]:
     """Build VII.5 lines (timed plan if present, else zone-path expansion)."""
-    return [text for _, text in format_simulation_output_by_turn(
+    rows = format_simulation_output_by_turn(
         drones,
         end_zone,
         movement_model,
-    )]
+    )
+    return [line_text for planner_turn, line_text in rows]
 
 
 def format_simulation_output_by_turn(
@@ -89,9 +86,12 @@ def _collect_timed_chain(
         if from_zone == to_zone:
             continue
         connection = f"{from_zone}-{to_zone}"
-        in_flight_toward_slow = movement_model.simulation_turn_weight(
-            to_zone,
-        ) > 1
+        in_flight_toward_slow = (
+            movement_model.simulation_turn_weight(
+                to_zone,
+            )
+            > 1
+        )
         for mid_turn in range(turn_start + 1, turn_end):
             token = (
                 f"{label}-{connection}"
@@ -125,7 +125,7 @@ def _collect_from_zone_path(
             turn_cursor += 1
             path_index += 1
             continue
-        travel_turns = max(1, movement_model.simulation_turn_weight(to_zone))
+        travel_turns = movement_model.simulation_turn_weight(to_zone)
         for mid_turn in range(1, travel_turns):
             turn_actions.setdefault(turn_cursor + mid_turn, []).append(
                 f"{label}-{from_zone}-{to_zone}",

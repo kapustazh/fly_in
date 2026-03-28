@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import heapq
 from math import inf
-from typing import Any, Dict
+from typing import Any
 
 from collections.abc import Mapping
 
@@ -22,20 +22,25 @@ class TimedGraph:
 
     @staticmethod
     def link_capacity(
-        connections: Mapping[str, Dict[str, Any]], a: str, b: str
+        connections: Mapping[str, dict[str, Any]],
+        zone_a: str,
+        zone_b: str,
     ) -> int:
-        """Maximum drones that may use the undirected edge *a*–*b* per turn."""
-        block = connections.get(a)
+        """Max drones on this undirected edge in one simulation turn."""
+        block = connections.get(zone_a)
         if block is None:
             return 0
-        meta = block.get("metadata", {}).get(b)
+        meta = block.get("metadata", {}).get(zone_b)
         if meta is None:
             return 1
-        return max(1, getattr(meta, "max_link_capacity", 1))
+        capacity = getattr(meta, "max_link_capacity", 1)
+        if capacity < 1:
+            return 1
+        return capacity
 
     @staticmethod
     def zone_max_drones(
-        zones: Mapping[str, Dict[str, Any]], zone_name: str
+        zones: Mapping[str, dict[str, Any]], zone_name: str
     ) -> int:
         """Max drones that may share *zone_name* on one turn."""
         zone = zones.get(zone_name)
@@ -44,11 +49,14 @@ class TimedGraph:
         meta = zone.get("metadata")
         if meta is None:
             return 1
-        return max(1, getattr(meta, "max_drones", 1))
+        limit = getattr(meta, "max_drones", 1)
+        if limit < 1:
+            return 1
+        return limit
 
     @staticmethod
     def neighbors(
-        connections: Mapping[str, Dict[str, Any]], zone_name: str
+        connections: Mapping[str, dict[str, Any]], zone_name: str
     ) -> set[str]:
         """Adjacent zone names reachable from *zone_name* in one step."""
         block = connections.get(zone_name)
@@ -62,8 +70,8 @@ class TurnOccupancyLedger:
 
     def __init__(
         self,
-        zones: Mapping[str, Dict[str, Any]],
-        connections: Mapping[str, Dict[str, Any]],
+        zones: Mapping[str, dict[str, Any]],
+        connections: Mapping[str, dict[str, Any]],
         *,
         exempt_zone_capacity: frozenset[str],
     ) -> None:
@@ -98,8 +106,8 @@ class TurnOccupancyLedger:
         if cap <= 0:
             return False
         key_edge = frozenset({zone_from, zone_to})
-        for tau in range(t_start, t_end):
-            if self._link_use.get((key_edge, tau), 0) >= cap:
+        for occupancy_turn in range(t_start, t_end):
+            if self._link_use.get((key_edge, occupancy_turn), 0) >= cap:
                 return False
         return True
 
@@ -110,8 +118,8 @@ class TurnOccupancyLedger:
         if zone_to in self._exempt:
             return True
         cap = TimedGraph.zone_max_drones(self._zones, zone_to)
-        for tau in range(t_start, t_end):
-            if self._zone_use.get((zone_to, tau), 0) >= cap:
+        for occupancy_turn in range(t_start, t_end):
+            if self._zone_use.get((zone_to, occupancy_turn), 0) >= cap:
                 return False
         return True
 
@@ -127,11 +135,13 @@ class TurnOccupancyLedger:
         self, zone_from: str, zone_to: str, t_start: int, t_end: int
     ) -> None:
         """Commit link and destination-zone usage for an in-flight move."""
-        key_edge = frozenset[str]({zone_from, zone_to})
-        for tau in range(t_start, t_end):
-            k = (key_edge, tau)
-            self._link_use[k] = self._link_use.get(k, 0) + 1
-            self.add_zone_turn(zone_to, tau)
+        key_edge = frozenset({zone_from, zone_to})
+        for occupancy_turn in range(t_start, t_end):
+            edge_turn_key = (key_edge, occupancy_turn)
+            self._link_use[edge_turn_key] = (
+                self._link_use.get(edge_turn_key, 0) + 1
+            )
+            self.add_zone_turn(zone_to, occupancy_turn)
 
     def reserve_wait_turn(self, zone_name: str, turn: int) -> None:
         """Record a one-turn wait (hover) in *zone_name* at *turn*."""
@@ -141,17 +151,19 @@ class TurnOccupancyLedger:
         self, states: list[tuple[str, int]]
     ) -> None:
         """Apply reserve_wait_turn and reserve_move along a timed path."""
-        for i in range(len(states) - 1):
-            z0, t0 = states[i]
-            z1, t1 = states[i + 1]
-            if z0 == z1:
-                if t1 != t0 + 1:
+        for step_index in range(len(states) - 1):
+            from_zone, turn_at_from = states[step_index]
+            to_zone, turn_at_to = states[step_index + 1]
+            if from_zone == to_zone:
+                if turn_at_to != turn_at_from + 1:
                     raise ValueError("Invalid wait step in timed chain")
-                self.reserve_wait_turn(z0, t0)
+                self.reserve_wait_turn(from_zone, turn_at_from)
             else:
-                if t1 <= t0:
+                if turn_at_to <= turn_at_from:
                     raise ValueError("Invalid move step in timed chain")
-                self.reserve_move(z0, z1, t0, t1)
+                self.reserve_move(
+                    from_zone, to_zone, turn_at_from, turn_at_to
+                )
 
 
 class TimedPathfinder:
@@ -159,15 +171,18 @@ class TimedPathfinder:
 
     @staticmethod
     def _push(
-        heap: list[tuple[int, int, str, int]],
+        open_heap: list[tuple[int, int, str, int]],
         movement: ZoneMovementModel,
-        g: int,
-        z: str,
-        t: int,
+        cumulative_cost: int,
+        zone_name: str,
+        turn_index: int,
     ) -> None:
         """Enqueue a search state with priority zones explored first."""
-        pri = 0 if movement.is_priority(z) else 1
-        heapq.heappush(heap, (g, pri, z, t))
+        priority_rank = 0 if movement.is_priority(zone_name) else 1
+        heapq.heappush(
+            open_heap,
+            (cumulative_cost, priority_rank, zone_name, turn_index),
+        )
 
     @staticmethod
     def find(
@@ -194,70 +209,92 @@ class TimedPathfinder:
             ) or not movement.is_passable(end_zone):
                 raise PathfindingError("Start or end blocked")
         except RoutingCostsError as e:
-            raise PathfindingError(str(e)) from e
+            raise PathfindingError(str(e))
 
         if start_zone == end_zone:
             return ([start_zone], [(start_zone, 0)])
 
-        heap: list[tuple[int, int, str, int]] = []
-        g_best: dict[tuple[str, int], int] = {}
+        open_heap: list[tuple[int, int, str, int]] = []
+        best_cost_by_state: dict[tuple[str, int], int] = {}
         came_from: dict[tuple[str, int], tuple[str, int]] = {}
 
         start_state = (start_zone, 0)
-        g_best[start_state] = 0
-        TimedPathfinder._push(heap, movement, 0, start_zone, 0)
+        best_cost_by_state[start_state] = 0
+        TimedPathfinder._push(open_heap, movement, 0, start_zone, 0)
         goal_state: tuple[str, int] | None = None
 
-        while heap:
-            g, _pri, z, t = heapq.heappop(heap)
-            state = (z, t)
-            if state not in g_best or g != g_best[state]:
+        while open_heap:
+            popped = heapq.heappop(open_heap)
+            cumulative_cost, _priority_rank, zone_name, turn_index = popped
+            state = (zone_name, turn_index)
+            if state not in best_cost_by_state:
                 continue
-            if z == end_zone:
+            if cumulative_cost != best_cost_by_state[state]:
+                continue
+            if zone_name == end_zone:
                 goal_state = state
                 break
 
-            if t + 1 <= max_time:
-                nt = t + 1
-                nstate = (z, nt)
-                if ledger.can_occupy_zone_at(z, t):
-                    ng = g + 1
-                    if ng < g_best.get(nstate, inf):
-                        g_best[nstate] = ng
-                        came_from[nstate] = state
-                        TimedPathfinder._push(heap, movement, ng, z, nt)
+            if turn_index + 1 <= max_time:
+                next_turn = turn_index + 1
+                wait_state = (zone_name, next_turn)
+                if ledger.can_occupy_zone_at(zone_name, turn_index):
+                    wait_cost = cumulative_cost + 1
+                    if wait_cost < best_cost_by_state.get(wait_state, inf):
+                        best_cost_by_state[wait_state] = wait_cost
+                        came_from[wait_state] = state
+                        TimedPathfinder._push(
+                            open_heap,
+                            movement,
+                            wait_cost,
+                            zone_name,
+                            next_turn,
+                        )
 
-            for nb in TimedGraph.neighbors(connections, z):
+            for neighbor_zone in TimedGraph.neighbors(
+                connections, zone_name
+            ):
                 try:
-                    if not movement.is_passable(nb):
+                    if not movement.is_passable(neighbor_zone):
                         continue
                 except RoutingCostsError:
                     continue
-                dt = movement.simulation_turn_weight(nb)
-                if dt <= 0:
+                travel_turns = movement.simulation_turn_weight(neighbor_zone)
+                if travel_turns <= 0:
                     continue
-                t_end = t + dt
-                if t_end > max_time:
+                turn_at_arrival = turn_index + travel_turns
+                if turn_at_arrival > max_time:
                     continue
-                if not ledger.can_move(z, nb, t, t_end):
+                if not ledger.can_move(
+                    zone_name,
+                    neighbor_zone,
+                    turn_index,
+                    turn_at_arrival,
+                ):
                     continue
-                nstate = (nb, t_end)
-                ng = g + dt
-                if ng < g_best.get(nstate, inf):
-                    g_best[nstate] = ng
-                    came_from[nstate] = state
-                    TimedPathfinder._push(heap, movement, ng, nb, t_end)
+                move_state = (neighbor_zone, turn_at_arrival)
+                move_cost = cumulative_cost + travel_turns
+                if move_cost < best_cost_by_state.get(move_state, inf):
+                    best_cost_by_state[move_state] = move_cost
+                    came_from[move_state] = state
+                    TimedPathfinder._push(
+                        open_heap,
+                        movement,
+                        move_cost,
+                        neighbor_zone,
+                        turn_at_arrival,
+                    )
 
         if goal_state is None:
             return None
 
-        chain_rev: list[tuple[str, int]] = []
-        cur = goal_state
+        chain_reversed: list[tuple[str, int]] = []
+        walk_state = goal_state
         while True:
-            chain_rev.append(cur)
-            if cur == start_state:
+            chain_reversed.append(walk_state)
+            if walk_state == start_state:
                 break
-            cur = came_from[cur]
-        timed_states = list(reversed(chain_rev))
-        zone_path = [zt[0] for zt in timed_states]
+            walk_state = came_from[walk_state]
+        timed_states = list(reversed(chain_reversed))
+        zone_path = [zone_time[0] for zone_time in timed_states]
         return (zone_path, timed_states)
