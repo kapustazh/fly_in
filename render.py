@@ -23,6 +23,7 @@ from layers import (
 from game import GameWorld
 from map_layout import ZoneLayout
 from pathfinding import RoutePlanner
+from fleet_planner import FleetPlanningError
 from drone import DroneArmada, DroneNavigationContext
 from simulation_output import format_simulation_output_by_turn
 
@@ -163,12 +164,13 @@ class Renderer:
         )
 
     def _spawn_armada(self) -> None:
-        """Plan routes and spawn drones (fleet planner + fallback)."""
+        """Plan timed fleet routes and spawn drones."""
         assert self._zone_layout is not None
         route_planner = RoutePlanner(self._game_world)
         self._drone_navigation_context = DroneNavigationContext(
             layout=self._zone_layout,
             movement_model=route_planner.movement_model,
+            reference_edge_pixels=self.assets.island.width,
         )
         self.drone_armada = DroneArmada()
         self.drone_armada.create_an_armada(
@@ -176,7 +178,12 @@ class Renderer:
             game_world=self._game_world,
             navigation_context=self._drone_navigation_context,
         )
-        self.drone_armada.launch_armada(self._game_world, route_planner)
+        try:
+            self.drone_armada.launch_armada(self._game_world, route_planner)
+        except FleetPlanningError as e:
+            print(e)
+            pygame.quit()
+            sys.exit(1)
         self._simulation_output_by_turn = format_simulation_output_by_turn(
             self.drone_armada.drones,
             self._game_world.end_zone_name,

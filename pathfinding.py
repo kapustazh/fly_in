@@ -42,6 +42,12 @@ class _AStarHeapEntry:
     zone: str
 
 
+# RoutePlanner.plan: A* on the zone graph (vertices = zones, edges =
+# connections). g_score is cheapest known cost to enter each zone;
+# heuristic h is straight-line grid distance between zone centers (admissible).
+# Open set is a min-heap keyed by f = g + h; stale heap entries are skipped
+# after a zone is closed. Typical time O((V + E) log V), space O(V), for V
+# zones and E neighbor relaxations.
 class RoutePlanner:
     """A* over zones/connections; exposes movement_model for simulation."""
 

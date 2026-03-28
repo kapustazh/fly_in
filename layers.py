@@ -10,7 +10,11 @@ import pygame
 from assets import AssetManager
 from enum import Enum
 
-from drone import DroneArmada, DroneNavigationContext, SECONDS_PER_DISCRETE_TURN
+from drone import (
+    DroneArmada,
+    DroneNavigationContext,
+    SECONDS_PER_DISCRETE_TURN,
+)
 from sprites import AnimatedSprite
 from map_layout import ZoneLayout
 from pygame.surface import Surface
@@ -263,12 +267,9 @@ class FlagsLayer(RenderLayer):
 class DronesLayer(RenderLayer):
     """Advances drone simulation each frame and draws each drone sprite."""
 
-    DRONE_SPEED_PX_PER_SEC = 108.0
+    DRONE_SPEED_PX_PER_SEC = 180
     WAIT_AT_NODE_SEC = SECONDS_PER_DISCRETE_TURN
-
-    # Nudge sprite down so it sits on tile (layout uses tile centers).
     DRONE_BLIT_ANCHOR_DOWN_PX = 0
-    # Nudge right so rotated sprite aligns with zone hubs.
     DRONE_DRAW_OFFSET_X = 0
 
     def __init__(self) -> None:

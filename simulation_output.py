@@ -113,7 +113,7 @@ def _collect_from_zone_path(
 ) -> None:
     """Expand *zone_path* using per-zone enter weights.
 
-    Used for A* fallback when the drone has no timed state chain.
+    Used when the drone has no timed state chain (zone path only).
     """
     turn_cursor = 0
     path_index = 0

@@ -1,4 +1,4 @@
-"""Fleet routing: timed capacity-aware paths; optional A* fallback."""
+"""Fleet routing: timed capacity-aware paths."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ from pathfinding import PlannedRoute, RoutePlanner
 from timed_pathfinding import TimedPathfinder, TurnOccupancyLedger
 
 
+class FleetPlanningError(Exception):
+    """No feasible timed route for a drone within the search horizon."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"Fleet planning error: {detail}")
+
+
 class DroneRouteEndpoints(Protocol):
     """Anything with *current_zone* and *end_zone* (used by fleet routing)."""
 
@@ -20,10 +27,9 @@ class DroneRouteEndpoints(Protocol):
 
 @dataclass(frozen=True)
 class FleetPlanResult:
-    """Outcome of fleet-level routing (constrained or fallback)."""
+    """Outcome of fleet-level routing."""
 
     routes: list[PlannedRoute]
-    used_capacity_fallback: bool
 
 
 class FleetRoutePlanner:
@@ -32,7 +38,7 @@ class FleetRoutePlanner:
     @staticmethod
     def _max_time_budget(game_world: GameWorld, num_drones: int) -> int:
         """Upper bound on simulated turns for timed search (map + fleet)."""
-        zone_count = len(game_world.zones)
+        zone_count = max(1, len(game_world.zones))
         return min(15_000, 300 + num_drones * 250 + zone_count * 80)
 
     @staticmethod
@@ -43,7 +49,7 @@ class FleetRoutePlanner:
         *,
         capacity_exempt_hub_zone_names: frozenset[str],
     ) -> FleetPlanResult:
-        """Plan drones in order; reserve capacity or use per-drone A*."""
+        """Plan drones in order; reserve capacity on the shared ledger."""
         movement = route_planner.movement_model
         ledger = TurnOccupancyLedger(
             game_world.zones,
@@ -63,7 +69,10 @@ class FleetRoutePlanner:
                 max_time=max_time,
             )
             if timed is None:
-                return FleetRoutePlanner._fallback(route_planner, drones)
+                raise FleetPlanningError(
+                    "Timed fleet planning failed: increase max_time budget, "
+                    "relax capacities, or simplify the map."
+                )
             zone_path, timed_states = timed
             ledger.reserve_timed_state_chain(timed_states)
             planned_routes.append(
@@ -73,17 +82,4 @@ class FleetRoutePlanner:
                 )
             )
 
-        return FleetPlanResult(
-            routes=planned_routes, used_capacity_fallback=False
-        )
-
-    @staticmethod
-    def _fallback(
-        route_planner: RoutePlanner, drones: Sequence[DroneRouteEndpoints]
-    ) -> FleetPlanResult:
-        """Plan each drone alone; ignore shared capacity (overlap ok)."""
-        routes = [
-            route_planner.plan(drone.current_zone, drone.end_zone)
-            for drone in drones
-        ]
-        return FleetPlanResult(routes=routes, used_capacity_fallback=True)
+        return FleetPlanResult(routes=planned_routes)

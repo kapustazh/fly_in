@@ -166,7 +166,7 @@ class InputParser:
         whitespace, hyphen (connection separator), or square brackets
         (metadata).
         """
-        zone_name = r"[^][\s-]+"
+        zone_name = r"[^\s\[\]-]+"
         pattern = (
             r"(start_hub|end_hub|hub):\s+"
             f"({zone_name})\\s+(-?\\d+)\\s+(-?\\d+)"

@@ -11,10 +11,7 @@ from map_layout import ZoneLayout
 from pathfinding import PlannedRoute, RoutePlanner
 from routing_costs import ZoneMovementModel
 
-# Real seconds for one discrete simulation turn. Used for planner_turn_time,
-# node waits, and timed-route speed budgets. Raise for slower pacing; keep
-# DronesLayer.WAIT_AT_NODE_SEC equal to this value.
-SECONDS_PER_DISCRETE_TURN: float = 0.75
+SECONDS_PER_DISCRETE_TURN: float = 1.7
 
 
 @dataclass(frozen=True)
@@ -23,10 +20,13 @@ class DroneNavigationContext:
 
     layout maps zone names to pixel centers, and movement_model provides
     per-zone movement weights used when updating cumulative simulation turns.
+    reference_edge_pixels is one axis-aligned grid step in pixels (tile width);
+    movement speed scales with actual edge length relative to that reference.
     """
 
     layout: ZoneLayout
     movement_model: ZoneMovementModel
+    reference_edge_pixels: float
 
 
 class Drone:
@@ -192,6 +192,7 @@ class Drone:
             next_zone_on_path
         )
         effective_speed_px_per_sec = self._effective_move_speed(
+            navigation_context,
             goal_pixel,
             speed_px_per_sec,
             wait_at_node_sec,
@@ -218,14 +219,27 @@ class Drone:
 
     def _effective_move_speed(
         self,
+        navigation_context: DroneNavigationContext,
         goal_pixel: tuple[float, float],
         speed_px_per_sec: float,
         wait_at_node_sec: float,
     ) -> float:
-        """Minimum speed needed to finish inside the reserved timed window."""
+        """Blend length-based speed with timed-route minimum when applicable."""
+        cur_x, cur_y = self.pixel_position
+        gx, gy = goal_pixel
+        distance = hypot(gx - cur_x, gy - cur_y)
+        ref = navigation_context.reference_edge_pixels
+        if ref > 0.0:
+            length_ratio = distance / ref
+            if length_ratio < 0.2:
+                length_ratio = 0.2
+            length_scaled_speed = speed_px_per_sec * length_ratio
+        else:
+            length_scaled_speed = speed_px_per_sec
+
         timed_states = self.planned_timed_states
         if timed_states is None:
-            return speed_px_per_sec
+            return length_scaled_speed
         step_index = self._next_zone_index
         turn_at_arrival = timed_states[step_index][1]
         turn_at_step_start = timed_states[step_index - 1][1]
@@ -234,12 +248,9 @@ class Drone:
             turn_span = 1
         sec_budget = turn_span * wait_at_node_sec
         if sec_budget <= 0.0:
-            return speed_px_per_sec
-        cur_x, cur_y = self.pixel_position
-        gx, gy = goal_pixel
-        distance = hypot(gx - cur_x, gy - cur_y)
+            return length_scaled_speed
         min_required_speed = distance / sec_budget
-        return max(speed_px_per_sec, min_required_speed)
+        return max(length_scaled_speed, min_required_speed)
 
     def _finish_zone_entry(
         self,
@@ -341,8 +352,7 @@ class DroneArmada:
     def launch_armada(
         self, game_world: GameWorld, route_planner: RoutePlanner
     ) -> None:
-        """Assign timed fleet routes (or fallback A*) and mark the
-        armada launched."""
+        """Assign timed fleet routes and mark the armada launched."""
         if self._navigation_context is None or self._launched:
             return
         from fleet_planner import FleetRoutePlanner
