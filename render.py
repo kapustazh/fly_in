@@ -67,6 +67,7 @@ class Renderer:
         self.paused: bool = False
         self._simulation_output_by_turn: list[tuple[int, str]] = []
         self._simulation_output_turn_index: int = 0
+        self._mouse_pixel_pos: tuple[int, int] = (0, 0)
         legend_x = self.WIDTH // 32
         legend_y = self.HEIGHT // 4
         self.layers: list[RenderLayer] = [
@@ -76,8 +77,8 @@ class Renderer:
             DronesLayer(),
             MapLegendLayer(legend_x, legend_y),
             HUDLayer(legend_x, legend_y),
-            ZoneTooltipLayer(),
             HelpOverlayLayer(),
+            ZoneTooltipLayer(),
         ]
 
     def _init_pygame(self) -> None:
@@ -86,6 +87,7 @@ class Renderer:
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT))
         pygame.display.set_caption("Fly-in")
         self.clock = pygame.time.Clock()
+        self._mouse_pixel_pos = pygame.mouse.get_pos()
 
     def _compute_offset(self) -> None:
         """Set camera so world origin starts at screen center.
@@ -118,8 +120,6 @@ class Renderer:
 
         self.offset_x = new_off_x
         self.offset_y = new_off_y
-
-        # Update render offsets; drones stay in world-space pixels.
         self._zone_layout = ZoneLayout(
             pixel_center_by_zone=self._zone_layout.pixel_center_by_zone,
             offset_x=self.offset_x,
@@ -161,7 +161,7 @@ class Renderer:
             current_time=self.current_time,
             width=self.WIDTH,
             height=self.HEIGHT,
-            mouse_position=pygame.mouse.get_pos(),
+            mouse_position=self._mouse_pixel_pos,
             drone_armada=self.drone_armada,
             navigation_context=self._drone_navigation_context,
             start_zone_name=self._game_world.start_zone_name,
@@ -208,10 +208,18 @@ class Renderer:
         self._spawn_armada()
 
     def _handle_events(self) -> None:
-        """Handle discrete events (quit/restart)."""
+        """Handle discrete events (quit/restart) and keep cursor position fresh.
+
+        SDL can lag or mis-report pygame.mouse.get_pos() on some platforms until
+        events are processed; MOUSEMOTION carries authoritative window coordinates.
+        """
+        moved = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            if event.type == pygame.MOUSEMOTION:
+                self._mouse_pixel_pos = event.pos
+                moved = True
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_q:
                     self.running = False
@@ -221,6 +229,9 @@ class Renderer:
                     self.show_help = not self.show_help
                 if event.key == pygame.K_SPACE:
                     self.paused = not self.paused
+        if not moved:
+            pygame.event.pump()
+            self._mouse_pixel_pos = pygame.mouse.get_pos()
 
     def _handle_camera_keys(self, dt_seconds: float) -> None:
         """Smooth camera movement while arrow/WASD keys are held."""

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from collections.abc import Mapping
 import pygame
@@ -173,7 +174,10 @@ class MapLayer(RenderLayer):
                         + " not found in zones"
                     )
                 nmeta = context.zones[neighbor].get("metadata")
-                if getattr(nmeta, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED:
+                if (
+                    getattr(nmeta, "zone", ZoneTypes.NORMAL)
+                    == ZoneTypes.BLOCKED
+                ):
                     continue
                 bridge = frozenset((name, neighbor))
                 if bridge in drawn:
@@ -204,7 +208,8 @@ class MapLayer(RenderLayer):
             x, y = zone["coordinates"]
             metadata = zone.get("metadata")
             is_blocked = (
-                getattr(metadata, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED
+                getattr(metadata, "zone", ZoneTypes.NORMAL)
+                == ZoneTypes.BLOCKED
             )
             zone_color = getattr(metadata, "color", None)
 
@@ -571,18 +576,28 @@ class ZoneTooltipLayer(RenderLayer):
 
     PADDING: int = 8
     LINE_SPACING: int = 4
-    BG_COLOR: tuple[int, int, int, int] = (30, 20, 10, 210)
-    BORDER_COLOR: tuple[int, int, int] = (200, 170, 100)
-    CURSOR_OFFSET: int = 1
+    BG_COLOR: tuple[int, int, int] = (40, 32, 24)
+    BORDER_COLOR: tuple[int, int, int] = (220, 190, 120)
+    CURSOR_OFFSET: int = 12
 
     def _get_hovered_zone(
         self,
         context: RenderContext,
     ) -> tuple[str, dict[str, Any]] | None:
-        """Return the (name, zone) pair the mouse is currently over."""
+        """Return the (name, zone) pair the mouse is currently over.
+
+        MapLayer uses a square grid step *tile_w* for both axes. Blocked zones
+        draw the obstacle 4px higher; those are hit-tested with a rect. Other
+        zones use grid indices from the cursor so picking matches the map even
+        if the island sprite is not square.
+        """
         tile_w = context.assets.island.width
         tile_h = context.assets.island.height
         mx, my = context.mouse_position
+        ox, oy = context.layout.offset_x, context.layout.offset_y
+
+        lx = mx - ox
+        ly = my - oy
 
         for name, zone in context.zones.items():
             coords = zone.get("coordinates")
@@ -590,20 +605,35 @@ class ZoneTooltipLayer(RenderLayer):
                 continue
             x, y = coords
             metadata = zone.get("metadata")
-            is_blocked = (
-                getattr(metadata, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED
-            )
-            # Match MapLayer._render_zones: obstacle tiles are blitted 4px higher.
-            y_pixel_offset = -4 if is_blocked else 0
+            if (
+                getattr(metadata, "zone", ZoneTypes.NORMAL)
+                != ZoneTypes.BLOCKED
+            ):
+                continue
             rect = pygame.Rect(
-                x * tile_w + context.layout.offset_x,
-                y * tile_w + context.layout.offset_y + y_pixel_offset,
+                int(x * tile_w + ox),
+                int(y * tile_w + oy - 4),
                 tile_w,
                 tile_h,
             )
             if rect.collidepoint(mx, my):
                 return name, zone
 
+        gx = int(math.floor(lx / tile_w))
+        gy = int(math.floor(ly / tile_w))
+        for name, zone in context.zones.items():
+            coords = zone.get("coordinates")
+            if not coords or len(coords) < 2:
+                continue
+            metadata = zone.get("metadata")
+            if (
+                getattr(metadata, "zone", ZoneTypes.NORMAL)
+                == ZoneTypes.BLOCKED
+            ):
+                continue
+            zx, zy = coords
+            if zx == gx and zy == gy:
+                return name, zone
         return None
 
     def _build_lines(
@@ -657,11 +687,16 @@ class ZoneTooltipLayer(RenderLayer):
     def _get_box_position(
         self,
         context: RenderContext,
+        box_w: int,
+        box_h: int,
     ) -> tuple[int, int]:
-        """Top-left for the tooltip box, offset slightly from the cursor."""
+        """Place the box near the cursor, clamped so it stays on-screen."""
         mx, my = context.mouse_position
+        margin = 4
         bx = mx + self.CURSOR_OFFSET
         by = my + self.CURSOR_OFFSET
+        bx = max(margin, min(bx, context.width - box_w - margin))
+        by = max(margin, min(by, context.height - box_h - margin))
         return bx, by
 
     def _render_lines(
@@ -684,6 +719,10 @@ class ZoneTooltipLayer(RenderLayer):
 
     def render(self, screen: Surface, context: RenderContext) -> None:
         """Render a tooltip with all zone info when hovering over a tile."""
+        # Fresh SDL read at draw time (some backends lag behind RenderContext).
+        mx, my = pygame.mouse.get_pos()
+        context = replace(context, mouse_position=(int(mx), int(my)))
+
         hovered = self._get_hovered_zone(context)
         if hovered is None:
             return
@@ -691,9 +730,9 @@ class ZoneTooltipLayer(RenderLayer):
         name, zone = hovered
         lines = self._build_lines(name, zone, context)
         char_h, box_w, box_h = self._get_box_size(lines, context)
-        bx, by = self._get_box_position(context)
+        bx, by = self._get_box_position(context, box_w, box_h)
 
-        bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        bg = pygame.Surface((box_w, box_h))
         bg.fill(self.BG_COLOR)
         screen.blit(bg, (bx, by))
         pygame.draw.rect(screen, self.BORDER_COLOR, (bx, by, box_w, box_h), 2)
