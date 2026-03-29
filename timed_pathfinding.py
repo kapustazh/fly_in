@@ -1,4 +1,4 @@
-"""Turn-based planning (VII.2): capacity is per turn, not per route name.
+"""Turn-based planning capacity is per turn, not per route name.
 
 Static overlap counts treat every shared zone as conflict; here, limits apply
 only when drones share a zone or link on the *same* turn.
@@ -26,7 +26,7 @@ class TimedGraph:
         zone_a: str,
         zone_b: str,
     ) -> int:
-        """Max drones on this undirected edge in one simulation turn."""
+        """Max drones on this undirected bridge in one simulation turn."""
         block = connections.get(zone_a)
         if block is None:
             return 0
@@ -100,14 +100,12 @@ class TurnCapacityTracker:
         self, zone_from: str, zone_to: str, t_start: int, t_end: int
     ) -> bool:
         """True if link capacity holds each turn in [t_start, t_end)."""
-        cap = TimedGraph.link_capacity(
-            self._connections, zone_from, zone_to
-        )
+        cap = TimedGraph.link_capacity(self._connections, zone_from, zone_to)
         if cap <= 0:
             return False
-        key_edge = frozenset({zone_from, zone_to})
+        key_bridge = frozenset({zone_from, zone_to})
         for occupancy_turn in range(t_start, t_end):
-            if self._link_use.get((key_edge, occupancy_turn), 0) >= cap:
+            if self._link_use.get((key_bridge, occupancy_turn), 0) >= cap:
                 return False
         return True
 
@@ -135,11 +133,11 @@ class TurnCapacityTracker:
         self, zone_from: str, zone_to: str, t_start: int, t_end: int
     ) -> None:
         """Commit link and destination-zone usage for an in-flight move."""
-        key_edge = frozenset({zone_from, zone_to})
+        key_bridge = frozenset({zone_from, zone_to})
         for occupancy_turn in range(t_start, t_end):
-            edge_turn_key = (key_edge, occupancy_turn)
-            self._link_use[edge_turn_key] = (
-                self._link_use.get(edge_turn_key, 0) + 1
+            bridge_turn_key = (key_bridge, occupancy_turn)
+            self._link_use[bridge_turn_key] = (
+                self._link_use.get(bridge_turn_key, 0) + 1
             )
             self.add_zone_turn(zone_to, occupancy_turn)
 
@@ -147,9 +145,7 @@ class TurnCapacityTracker:
         """Record a one-turn wait (hover) in *zone_name* at *turn*."""
         self.add_zone_turn(zone_name, turn)
 
-    def reserve_timed_state_chain(
-        self, states: list[tuple[str, int]]
-    ) -> None:
+    def reserve_timed_state_chain(self, states: list[tuple[str, int]]) -> None:
         """Apply reserve_wait_turn and reserve_move along a timed path."""
         for step_index in range(len(states) - 1):
             from_zone, turn_at_from = states[step_index]
@@ -161,9 +157,7 @@ class TurnCapacityTracker:
             else:
                 if turn_at_to <= turn_at_from:
                     raise ValueError("Invalid move step in timed chain")
-                self.reserve_move(
-                    from_zone, to_zone, turn_at_from, turn_at_to
-                )
+                self.reserve_move(from_zone, to_zone, turn_at_from, turn_at_to)
 
 
 class TimedPathfinder:
@@ -252,9 +246,7 @@ class TimedPathfinder:
                             next_turn,
                         )
 
-            for neighbor_zone in TimedGraph.neighbors(
-                connections, zone_name
-            ):
+            for neighbor_zone in TimedGraph.neighbors(connections, zone_name):
                 try:
                     if not movement.is_passable(neighbor_zone):
                         continue

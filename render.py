@@ -20,7 +20,7 @@ from layers import (
     ZoneTooltipLayer,
     HelpOverlayLayer,
 )
-from game import GameWorld
+from game import GameWorld, GameWorldError
 from map_layout import ZoneLayout
 from pathfinding import RoutePlanner
 from fleet_planner import FleetPlanningError
@@ -52,9 +52,9 @@ class Renderer:
         self.zones = game_world.zones
         self.connections = game_world.connections
         self.assets = assets
-        self.drone_armada = DroneArmada()
-        self._zone_layout: ZoneLayout | None = None
-        self._drone_navigation_context: DroneNavigationContext | None = None
+        self.drone_armada: DroneArmada
+        self._zone_layout: ZoneLayout
+        self._drone_navigation_context: DroneNavigationContext
         self.screen: Surface
         self.clock: pygame.time.Clock
         self.running = True
@@ -66,7 +66,7 @@ class Renderer:
         self.show_help: bool = False
         self.paused: bool = False
         self._simulation_output_by_turn: list[tuple[int, str]] = []
-        self._simulation_output_emit_index: int = 0
+        self._simulation_output_turn_index: int = 0
         legend_x = self.WIDTH // 32
         legend_y = self.HEIGHT // 4
         self.layers: list[RenderLayer] = [
@@ -120,7 +120,6 @@ class Renderer:
         self.offset_y = new_off_y
 
         # Update render offsets; drones stay in world-space pixels.
-        assert self._zone_layout is not None
         self._zone_layout = ZoneLayout(
             pixel_center_by_zone=self._zone_layout.pixel_center_by_zone,
             offset_x=self.offset_x,
@@ -130,8 +129,8 @@ class Renderer:
             self._drone_navigation_context = DroneNavigationContext(
                 layout=self._zone_layout,
                 movement_model=self._drone_navigation_context.movement_model,
-                reference_edge_pixels=(
-                    self._drone_navigation_context.reference_edge_pixels
+                reference_bridge_pixels=(
+                    self._drone_navigation_context.reference_bridge_pixels
                 ),
             )
 
@@ -154,8 +153,6 @@ class Renderer:
 
     def _build_context(self) -> RenderContext:
         """Per-frame snapshot for layers (time, mouse, armada, etc.)."""
-        assert self._zone_layout is not None
-        assert self._drone_navigation_context is not None
         return RenderContext(
             zones=self.zones,
             connections=self.connections,
@@ -167,18 +164,19 @@ class Renderer:
             mouse_position=pygame.mouse.get_pos(),
             drone_armada=self.drone_armada,
             navigation_context=self._drone_navigation_context,
+            start_zone_name=self._game_world.start_zone_name,
+            end_zone_name=self._game_world.end_zone_name,
             show_help=self.show_help,
             paused=self.paused,
         )
 
     def _spawn_armada(self) -> None:
         """Plan timed fleet routes and spawn drones."""
-        assert self._zone_layout is not None
         route_planner = RoutePlanner(self._game_world)
         self._drone_navigation_context = DroneNavigationContext(
             layout=self._zone_layout,
             movement_model=route_planner.movement_model,
-            reference_edge_pixels=self.assets.island.width,
+            reference_bridge_pixels=self.assets.island.width,
         )
         self.drone_armada = DroneArmada()
         self.drone_armada.create_an_armada(
@@ -199,7 +197,7 @@ class Renderer:
                 self._drone_navigation_context.movement_model,
             )
         )
-        self._simulation_output_emit_index = 0
+        self._simulation_output_turn_index = 0
 
     def _restart_simulation(self) -> None:
         """Replan and reset drone motion timing (e.g. after pressing R)."""
@@ -241,25 +239,25 @@ class Renderer:
         if camera_delta_x != 0.0 or camera_delta_y != 0.0:
             self._move_camera(camera_delta_x, camera_delta_y)
 
-    def _emit_due_simulation_lines(self) -> None:
-        """Print VII.5 lines for turns up to the current planner clock."""
+    def _print_turn_simulation_lines(self) -> None:
+        """Print simulation lines for turns up to the current planner clock."""
         if self.paused:
             return
         turn_floor = int(self.drone_armada.planner_turn_time)
         while (
-            self._simulation_output_emit_index
+            self._simulation_output_turn_index
             < len(self._simulation_output_by_turn)
             and self._simulation_output_by_turn[
-                self._simulation_output_emit_index
+                self._simulation_output_turn_index
             ][0]
             <= turn_floor
         ):
             print(
                 self._simulation_output_by_turn[
-                    self._simulation_output_emit_index
+                    self._simulation_output_turn_index
                 ][1]
             )
-            self._simulation_output_emit_index += 1
+            self._simulation_output_turn_index += 1
 
     def run(self) -> None:
         """Load assets, enter the event/render loop at 60 FPS until quit."""
@@ -282,7 +280,7 @@ class Renderer:
                 context = self._build_context()
                 for layer in self.layers:
                     layer.render(self.screen, context)
-                self._emit_due_simulation_lines()
+                self._print_turn_simulation_lines()
                 pygame.display.flip()
         except LayerRenderError as e:
             print(f"Render error: {e}")
@@ -324,8 +322,8 @@ class InformationManager:
             map_parser = InputParser()
             map_parser.parse_lines(self._get_filepath)
             map_parser.parse_input()
-            if not map_parser.get_zones or not map_parser.connections:
-                raise ParsingError("No zones or connections provided")
+            if not map_parser.get_zones:
+                raise ParsingError("No zones provided")
             self._zones = map_parser.get_zones
             self._connections = map_parser.connections
             self._num_drones = map_parser.number_of_drones
@@ -337,9 +335,13 @@ class InformationManager:
         """Parse input, construct the world, and run the game window."""
         self.parse_input()
         assets = AssetManager()
-        game_world = GameWorld.from_parsed_map(
-            zones=self._zones,
-            connections=self._connections,
-            num_drones=self._num_drones,
-        )
+        try:
+            game_world = GameWorld.from_parsed_map(
+                zones=self._zones,
+                connections=self._connections,
+                num_drones=self._num_drones,
+            )
+        except GameWorldError as e:
+            print(e)
+            sys.exit(1)
         Renderer(game_world=game_world, assets=assets).run()

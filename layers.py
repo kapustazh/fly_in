@@ -9,6 +9,7 @@ from collections.abc import Mapping
 import pygame
 from assets import AssetManager
 from enum import Enum
+from parser import ZoneTypes
 
 from drone import (
     DroneArmada,
@@ -48,6 +49,8 @@ class RenderContext:
     width: int
     height: int
     mouse_position: tuple[int, int]
+    start_zone_name: str
+    end_zone_name: str
     show_help: bool = False
     paused: bool = False
 
@@ -156,7 +159,8 @@ class MapLayer(RenderLayer):
         half_h = context.assets.island.height // 2
 
         for name, zone in context.zones.items():
-            if zone.get("metadata", {}).zone == "blocked":
+            meta = zone.get("metadata")
+            if getattr(meta, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED:
                 continue
 
             x, y = zone["coordinates"]
@@ -168,10 +172,8 @@ class MapLayer(RenderLayer):
                         f"Neighbor '{neighbor}' referenced in connections but"
                         + " not found in zones"
                     )
-                if (
-                    context.zones[neighbor].get("metadata", {}).zone
-                    == "blocked"
-                ):
+                nmeta = context.zones[neighbor].get("metadata")
+                if getattr(nmeta, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED:
                     continue
                 bridge = frozenset((name, neighbor))
                 if bridge in drawn:
@@ -201,7 +203,9 @@ class MapLayer(RenderLayer):
         for zone in context.zones.values():
             x, y = zone["coordinates"]
             metadata = zone.get("metadata")
-            is_blocked = getattr(metadata, "zone", "normal") == "blocked"
+            is_blocked = (
+                getattr(metadata, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED
+            )
             zone_color = getattr(metadata, "color", None)
 
             base_surface = (
@@ -244,9 +248,9 @@ class FlagsLayer(RenderLayer):
             sprite=context.assets.campfire,
         )
 
-        for zone in context.zones.values():
+        for name, zone in context.zones.items():
             x, y = zone["coordinates"]
-            if zone.get("hub_type") == "start_hub":
+            if name == context.start_zone_name:
                 screen.blit(
                     current_ua_flag,
                     (
@@ -254,7 +258,7 @@ class FlagsLayer(RenderLayer):
                         y * tile_w + context.layout.offset_y - 65,
                     ),
                 )
-            if zone.get("hub_type") == "end_hub":
+            if name == context.end_zone_name:
                 screen.blit(
                     current_campfire,
                     (
@@ -577,6 +581,7 @@ class ZoneTooltipLayer(RenderLayer):
     ) -> tuple[str, dict[str, Any]] | None:
         """Return the (name, zone) pair the mouse is currently over."""
         tile_w = context.assets.island.width
+        tile_h = context.assets.island.height
         mx, my = context.mouse_position
 
         for name, zone in context.zones.items():
@@ -584,11 +589,17 @@ class ZoneTooltipLayer(RenderLayer):
             if not coords or len(coords) < 2:
                 continue
             x, y = coords
+            metadata = zone.get("metadata")
+            is_blocked = (
+                getattr(metadata, "zone", ZoneTypes.NORMAL) == ZoneTypes.BLOCKED
+            )
+            # Match MapLayer._render_zones: obstacle tiles are blitted 4px higher.
+            y_pixel_offset = -4 if is_blocked else 0
             rect = pygame.Rect(
                 x * tile_w + context.layout.offset_x,
-                y * tile_w + context.layout.offset_y,
+                y * tile_w + context.layout.offset_y + y_pixel_offset,
                 tile_w,
-                tile_w,
+                tile_h,
             )
             if rect.collidepoint(mx, my):
                 return name, zone

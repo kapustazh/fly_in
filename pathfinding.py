@@ -42,12 +42,13 @@ class _AStarHeapEntry:
     zone: str
 
 
-# RoutePlanner.plan: A* on the zone graph (vertices = zones, edges =
-# connections). g_score is cheapest known cost to enter each zone;
+# RoutePlanner.plan: A* on the zone graph (vertices = zones,
+# bridges = connections between zones). g_score is cheapest known cost to enter
+# each zone;
 # heuristic h is straight-line grid distance between zone centers (admissible).
 # Open set is a min-heap keyed by f = g + h; stale heap entries are skipped
-# after a zone is closed. Typical time O((V + E) log V), space O(V), for V
-# zones and E neighbor relaxations.
+# after a zone is visited. Typical time O((V + B) log V), space O(V), for V
+# zones and B bridge relaxations.
 class RoutePlanner:
     """A* over zones/connections; exposes movement_model for simulation."""
 
@@ -90,17 +91,24 @@ class RoutePlanner:
         g_score: dict[str, float] = {name: inf for name in zones}
         g_score[start_zone] = 0.0
 
-        start_h = RoutePlanner._heuristic(zones, start_zone, end_zone)
+        start_h = RoutePlanner._heuristic(
+            zones, from_zone=start_zone, to_zone=end_zone
+        )
         start_tie = 0 if movement.is_priority(start_zone) else 1
         heapq.heappush(
             open_heap,
-            _AStarHeapEntry(start_h, start_tie, start_h, start_zone),
+            _AStarHeapEntry(
+                f_score=start_h,
+                tie_priority=start_tie,
+                h_score=start_h,
+                zone=start_zone,
+            ),
         )
-        closed: set[str] = set()
+        visited: set[str] = set()
 
         while open_heap:
             current_zone = heapq.heappop(open_heap).zone
-            if current_zone in closed:
+            if current_zone in visited:
                 continue
             if current_zone == end_zone:
                 return PlannedRoute(
@@ -108,12 +116,12 @@ class RoutePlanner:
                         came_from, end_zone
                     )
                 )
-            closed.add(current_zone)
+            visited.add(current_zone)
             connection_block = connections.get(current_zone)
             if connection_block is None:
                 continue
             for neighbor_zone in connection_block.get("connections", set()):
-                if neighbor_zone in closed:
+                if neighbor_zone in visited:
                     continue
                 try:
                     if not movement.is_passable(neighbor_zone):
@@ -127,16 +135,16 @@ class RoutePlanner:
                 came_from[neighbor_zone] = current_zone
                 g_score[neighbor_zone] = tentative_g
                 neighbor_h = RoutePlanner._heuristic(
-                    zones, neighbor_zone, end_zone
+                    zones, from_zone=neighbor_zone, to_zone=end_zone
                 )
                 neighbor_tie = 0 if movement.is_priority(neighbor_zone) else 1
                 heapq.heappush(
                     open_heap,
                     _AStarHeapEntry(
-                        tentative_g + neighbor_h,
-                        neighbor_tie,
-                        neighbor_h,
-                        neighbor_zone,
+                        f_score=tentative_g + neighbor_h,
+                        tie_priority=neighbor_tie,
+                        h_score=neighbor_h,
+                        zone=neighbor_zone,
                     ),
                 )
 

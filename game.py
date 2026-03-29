@@ -10,7 +10,7 @@ class GameWorldError(Exception):
     """Invalid or incomplete world data (e.g. missing start or end hub)."""
 
     def __init__(self, detail: str) -> None:
-        super().__init__(f"Game world error: {detail}")
+        super().__init__(f"GameWorld error: {detail}")
 
 
 @dataclass
@@ -29,9 +29,14 @@ class GameWorld:
     ) -> str:
         """Return the unique zone name whose hub_type matches *hub_type*."""
         for name, zone in zones.items():
+            roles = zone.get("hub_roles")
+            if roles is not None and hub_type in roles:
+                return name
             if zone.get("hub_type") == hub_type:
                 return name
-        raise GameWorldError(f"Hub type '{hub_type}' was not found")
+        raise GameWorldError(
+            f"Something unexpected happened: '{hub_type}' was not found"
+        )
 
     @classmethod
     def from_parsed_map(

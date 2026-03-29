@@ -12,3 +12,4 @@ uv.lock
 .python-version
 .idea
 .cursor
+fly_in.egg-info/

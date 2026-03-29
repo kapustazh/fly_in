@@ -1,11 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "fly-in"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fly-in is a graph-based drone routing simulator with real-time visualization."
 requires-python = ">=3.11"
 dependencies = [
     "black>=26.1.0",
     "pygame-ce>=2.5.6",
+]
+[project.optional-dependencies]
+dev = [
+    "flake8>=7",
+    "mypy>=1.8",
+]
+
+[tool.setuptools]
+py-modules = [
+    "assets",
+    "drone",
+    "drone_sprite",
+    "fleet_planner",
+    "game",
+    "layers",
+    "main",
+    "map_layout",
+    "parser",
+    "pathfinding",
+    "render",
+    "routing_costs",
+    "simulation_output",
+    "sprites",
+    "timed_pathfinding",
 ]
 
 [tool.mypy]

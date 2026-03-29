@@ -20,7 +20,7 @@ class DroneNavigationContext:
 
     layout: ZoneLayout
     movement_model: ZoneMovementModel
-    reference_edge_pixels: float
+    reference_bridge_pixels: float
 
 
 class Drone:
@@ -223,7 +223,7 @@ class Drone:
         cur_x, cur_y = self.pixel_position
         gx, gy = goal_pixel
         distance = hypot(gx - cur_x, gy - cur_y)
-        ref = navigation_context.reference_edge_pixels
+        ref = navigation_context.reference_bridge_pixels
         if ref > 0.0:
             length_ratio = distance / ref
             if length_ratio < 0.2:
@@ -306,8 +306,8 @@ class DroneArmada:
 
     def __init__(self) -> None:
         """Create an empty fleet; call create_an_armada then launch_armada."""
-        self.drones: list[Drone] = []
-        self._navigation_context: DroneNavigationContext | None = None
+        self.drones: list[Drone]
+        self._navigation_context: DroneNavigationContext
         self._launched = False
         self.planner_turn_time: float = 0.0
 
@@ -348,8 +348,6 @@ class DroneArmada:
         self, game_world: GameWorld, route_planner: RoutePlanner
     ) -> None:
         """Assign timed fleet routes and mark the armada launched."""
-        if self._navigation_context is None or self._launched:
-            return
         from fleet_planner import FleetRoutePlanner
 
         capacity_exempt_hub_zone_names = frozenset(

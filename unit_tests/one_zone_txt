@@ -1,0 +1,6 @@
+# Invalid: same zone name twice (start_hub and end_hub must be different zones).
+nb_drones: 1
+start_hub: start 0 0
+end_hub: start1 1 0
+
+connection: start-start1[max_link_capacity=1]

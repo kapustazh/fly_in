@@ -61,7 +61,7 @@ class ZoneMetadata:
     """Parsed optional fields for a zone hub line."""
 
     color: str | None = None
-    zone: str = ZoneTypes.NORMAL
+    zone: ZoneTypes = ZoneTypes.NORMAL
     max_drones: int = 1
 
 
@@ -114,7 +114,17 @@ class InputParser:
         if not metadata:
             return ConnectionMetadata() if is_connection else ZoneMetadata()
 
-        parsed = dict(metadata.split("=") for metadata in metadata.split())
+        # One key=value per whitespace-separated token (e.g. color=green).
+        parsed: dict[str, str] = {}
+        for token in metadata.split():
+            if "=" not in token:
+                raise ValueError(
+                    f"invalid metadata token {token!r}, expected key=value"
+                )
+            key, _, value = token.partition("=")
+            if not key:
+                raise ValueError(f"empty key in metadata token {token!r}")
+            parsed[key] = value
 
         if is_connection:
             allowed_keys = {item.value for item in AllowedMetadataConnections}
@@ -141,7 +151,14 @@ class InputParser:
                         f"'{key}' must be an integer! Got '{value}'"
                     )
             elif key == "zone":
-                parsed_clean[key] = ZoneTypes(value)
+                try:
+                    parsed_clean[key] = ZoneTypes(value)
+                except ValueError as exc:
+                    allowed = ", ".join(sorted(z.value for z in ZoneTypes))
+                    raise ValueError(
+                        f"invalid zone type {value!r}; must be one of: "
+                        f"{allowed}"
+                    ) from exc
             else:
                 parsed_clean[key] = value
 
@@ -179,6 +196,7 @@ class InputParser:
         )
         try:
             seen_connections: set[frozenset[str]] = set()
+            coord_owner: dict[tuple[int, int], str] = {}
             nb_drones_seen = False
             for line_num, raw in enumerate(self.parsed_lines, start=1):
                 line = raw.strip()
@@ -221,10 +239,27 @@ class InputParser:
                         )
                     except ValueError as e:
                         raise ValueError(f"line {line_num}: {e}")
-                    self.zones[name].update(
+                    coords = (int(x), int(y))
+                    block = self.zones[name]
+                    if block.get("coordinates") is not None:
+                        raise ValueError(
+                            f"line {line_num}: duplicate zone name '{name}' "
+                            "(each zone must appear only once; use distinct "
+                            "names for start_hub and end_hub)"
+                        )
+                    if coords in coord_owner:
+                        raise ValueError(
+                            f"line {line_num}: coordinates {coords} "
+                            "already used by zone "
+                            f"'{coord_owner[coords]}' (each zone must have "
+                            "unique coordinates)"
+                        )
+                    coord_owner[coords] = name
+                    block.update(
                         {
                             "hub_type": hub_type,
-                            "coordinates": (int(x), int(y)),
+                            "hub_roles": frozenset({hub_type}),
+                            "coordinates": coords,
                             "metadata": zone_meta,
                         }
                     )
@@ -273,6 +308,16 @@ class InputParser:
     def parse_connections(self) -> None:
         """Expand raw_connections into bidirectional edges with metadata."""
         for (hub_one, hub_two), meta in self.raw_connections:
+            if hub_one not in self.zones:
+                raise ValueError(
+                    f"connection references unknown zone {hub_one!r}; "
+                    "declare it with a start_hub, end_hub, or hub line first"
+                )
+            if hub_two not in self.zones:
+                raise ValueError(
+                    f"connection references unknown zone {hub_two!r}; "
+                    "declare it with a start_hub, end_hub, or hub line first"
+                )
             if hub_one not in self.connections:
                 self.connections[hub_one] = {
                     "connections": set(),

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
-
+from drone import Drone
 from game import GameWorld
 from pathfinding import PlannedRoute, RoutePlanner
 from timed_pathfinding import TimedPathfinder, TurnCapacityTracker
@@ -16,13 +14,6 @@ class FleetPlanningError(Exception):
 
     def __init__(self, detail: str) -> None:
         super().__init__(f"Fleet planning error: {detail}")
-
-
-class DroneRouteEndpoints(Protocol):
-    """Anything with *current_zone* and *end_zone* (used by fleet routing)."""
-
-    current_zone: str
-    end_zone: str
 
 
 @dataclass(frozen=True)
@@ -45,7 +36,7 @@ class FleetRoutePlanner:
     def plan_all_drones(
         route_planner: RoutePlanner,
         game_world: GameWorld,
-        drones: Sequence[DroneRouteEndpoints],
+        drones: list[Drone],
         *,
         capacity_exempt_hub_zone_names: frozenset[str],
     ) -> FleetPlanResult:
@@ -69,8 +60,8 @@ class FleetRoutePlanner:
             )
             if timed is None:
                 raise FleetPlanningError(
-                    "Timed fleet planning failed: increase max_time budget, "
-                    "relax capacities, or simplify the map."
+                    "TimedFleet planning failed: increase max_time budget, "
+                    "relax capacities, or change the map."
                 )
             zone_path, timed_states = timed
             capacity_tracker.reserve_timed_state_chain(timed_states)
