@@ -1,140 +1,121 @@
-"""VII.5 simulation text: step-by-step drone movement from start to end hub.
-
-Each non-empty simulation turn is one output line. On a line, list every
-drone that moves that turn, space-separated. Tokens:
-
-  * D<ID>-<zone>: drone enters or is reported at that destination zone.
-  * D<ID>-<from>-<to>: drone still crossing the edge between two zones
-    (multi-turn legs, e.g. restricted zones in this project).
-
-Drones that do not move on a turn are omitted. After a drone reaches the end
-zone it is delivered and omitted from later lines. Output stops once every
-drone has reached the end zone.
-"""
+"""VII.5-style simulation line formatting."""
 
 from __future__ import annotations
+
+from collections import defaultdict
 
 from drone import Drone
 from routing_costs import ZoneMovementModel
 
 
-def format_simulation_output(
-    drones: list[Drone],
-    end_zone: str,
-    movement_model: ZoneMovementModel,
-) -> list[str]:
-    """Build VII.5 lines (timed plan if present, else zone-path expansion)."""
-    return [
-        line_text
-        for _, line_text in format_simulation_output_by_turn(
-            drones,
-            end_zone,
-            movement_model,
-        )
-    ]
+class SimulationOutput:
+    """Step-by-step drone movement from start to end hub.
 
+    Each non-empty simulation turn is one output line. On a line, list every
+    drone that moves that turn, space-separated. Tokens:
 
-def format_simulation_output_by_turn(
-    drones: list[Drone],
-    end_zone: str,
-    movement_model: ZoneMovementModel,
-) -> list[tuple[int, str]]:
-    """Like format_simulation_output but keep planner turn index per line."""
-    turn_actions: dict[int, list[str]] = {}
+      D<ID>-<zone>: drone enters or is reported at that destination zone.
+      D<ID>-<from>-<to>: drone still crossing the edge between two zones.
 
-    for drone_index, drone in enumerate(drones):
-        label = f"D{drone_index + 1}"
-        if drone.planned_timed_states is not None:
-            _collect_timed_chain(
-                turn_actions,
-                label,
-                drone.planned_timed_states,
-                end_zone,
-                movement_model,
-            )
-        else:
-            _collect_from_zone_path(
-                turn_actions,
-                label,
-                drone.zone_path,
-                end_zone,
-                movement_model,
-            )
-
-    if not turn_actions:
-        return []
-
-    max_turn = max(turn_actions)
-    entries: list[tuple[int, str]] = []
-    for turn_index in range(1, max_turn + 1):
-        actions = turn_actions.get(turn_index)
-        if actions:
-            entries.append((turn_index, " ".join(actions)))
-    return entries
-
-
-def _collect_timed_chain(
-    turn_actions: dict[int, list[str]],
-    label: str,
-    timed_states: list[tuple[str, int]],
-    end_zone: str,
-    movement_model: ZoneMovementModel,
-) -> None:
-    """Populate *turn_actions* from (zone_name, turn_index) pairs."""
-    for step_index in range(len(timed_states) - 1):
-        from_zone, turn_start = timed_states[step_index]
-        to_zone, turn_end = timed_states[step_index + 1]
-        if from_zone == to_zone:
-            continue
-        connection = f"{from_zone}-{to_zone}"
-        in_flight_toward_slow = (
-            movement_model.simulation_turn_weight(
-                to_zone,
-            )
-            > 1
-        )
-        for mid_turn in range(turn_start + 1, turn_end):
-            token = (
-                f"{label}-{connection}"
-                if in_flight_toward_slow
-                else f"{label}-{to_zone}"
-            )
-            turn_actions.setdefault(mid_turn, []).append(token)
-        turn_actions.setdefault(turn_end, []).append(f"{label}-{to_zone}")
-        if to_zone == end_zone:
-            break
-
-
-def _collect_from_zone_path(
-    turn_actions: dict[int, list[str]],
-    label: str,
-    zone_path: list[str],
-    end_zone: str,
-    movement_model: ZoneMovementModel,
-) -> None:
-    """Expand *zone_path* using per-zone enter weights.
-
-    Used when the drone has no timed state chain (zone path only).
+    Drones that do not move on a turn are omitted. After a drone reaches the
+    end zone it is delivered and omitted from later lines. Output stops once
+    every drone has reached the end zone.
     """
-    turn_cursor = 0
-    path_index = 0
-    path_len = len(zone_path)
-    while path_index < path_len - 1:
-        from_zone = zone_path[path_index]
-        to_zone = zone_path[path_index + 1]
-        if from_zone == to_zone:
-            turn_cursor += 1
-            path_index += 1
-            continue
-        travel_turns = movement_model.simulation_turn_weight(to_zone)
-        for mid_turn in range(1, travel_turns):
-            turn_actions.setdefault(turn_cursor + mid_turn, []).append(
-                f"{label}-{from_zone}-{to_zone}",
-            )
-        turn_actions.setdefault(turn_cursor + travel_turns, []).append(
-            f"{label}-{to_zone}",
-        )
-        turn_cursor += travel_turns
-        path_index += 1
-        if to_zone == end_zone:
-            break
+
+    def __init__(
+        self,
+        drones: list[Drone],
+        end_zone: str,
+        movement_model: ZoneMovementModel,
+    ) -> None:
+        self._end_zone = end_zone
+        self._movement_model = movement_model
+        self._by_turn: defaultdict[int, list[str]] = defaultdict(list)
+
+        for i, drone in enumerate(drones):
+            label = f"D{i + 1}"
+            if drone.planned_timed_states is not None:
+                self._append_timed_chain(drone.planned_timed_states, label)
+            else:
+                self._append_zone_path(drone.zone_path, label)
+
+    def lines_by_turn(self) -> list[tuple[int, str]]:
+        """Rows as (planner turn index, line text)."""
+        if not self._by_turn:
+            return []
+
+        last_turn = max(self._by_turn)
+        rows: list[tuple[int, str]] = []
+        for t in range(1, last_turn + 1):
+            actions = self._by_turn.get(t)
+            if actions:
+                rows.append((t, " ".join(actions)))
+        return rows
+
+    def lines(self) -> list[str]:
+        """Line text only, in turn order."""
+        return [text for _, text in self.lines_by_turn()]
+
+    def _append_timed_chain(
+        self,
+        timed_states: list[tuple[str, int]],
+        label: str,
+    ) -> None:
+        """Append tokens from a (zone, planner turn) chain."""
+        mm = self._movement_model
+        end = self._end_zone
+        by = self._by_turn
+
+        for i in range(len(timed_states) - 1):
+            z0, t0 = timed_states[i]
+            z1, t1 = timed_states[i + 1]
+            if z0 == z1:
+                continue
+            edge = f"{z0}-{z1}"
+            multi_turn = mm.simulation_turn_weight(z1) > 1
+            mid_token = f"{label}-{edge}" if multi_turn else f"{label}-{z1}"
+            for t in range(t0 + 1, t1):
+                by[t].append(mid_token)
+            by[t1].append(f"{label}-{z1}")
+            if z1 == end:
+                break
+
+    def _append_zone_path(self, zone_path: list[str], label: str) -> None:
+        """Append tokens from zone_path when there is no timed chain."""
+        mm = self._movement_model
+        end = self._end_zone
+        by = self._by_turn
+
+        turn0 = 0
+        for j in range(len(zone_path) - 1):
+            z0, z1 = zone_path[j], zone_path[j + 1]
+            if z0 == z1:
+                turn0 += 1
+                continue
+            w = mm.simulation_turn_weight(z1)
+            for k in range(1, w):
+                by[turn0 + k].append(f"{label}-{z0}-{z1}")
+            by[turn0 + w].append(f"{label}-{z1}")
+            turn0 += w
+            if z1 == end:
+                break
+
+    @classmethod
+    def format_simulation_output(
+        cls,
+        drones: list[Drone],
+        end_zone: str,
+        movement_model: ZoneMovementModel,
+    ) -> list[str]:
+        """Build VII.5 lines (timed plan if present, else zone-path expansion)."""
+        return cls(drones, end_zone, movement_model).lines()
+
+    @classmethod
+    def format_simulation_output_by_turn(
+        cls,
+        drones: list[Drone],
+        end_zone: str,
+        movement_model: ZoneMovementModel,
+    ) -> list[tuple[int, str]]:
+        """Like format_simulation_output but keep planner turn index per line."""
+        return cls(drones, end_zone, movement_model).lines_by_turn()

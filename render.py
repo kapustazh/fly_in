@@ -25,7 +25,7 @@ from map_layout import ZoneLayout
 from pathfinding import RoutePlanner
 from fleet_planner import FleetPlanningError
 from drone import DroneArmada, DroneNavigationContext
-from simulation_output import format_simulation_output_by_turn
+from simulation_output import SimulationOutput
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 from pygame.surface import Surface  # noqa: E402
@@ -192,10 +192,12 @@ class Renderer:
             print(e)
             pygame.quit()
             sys.exit(1)
-        self._simulation_output_by_turn = format_simulation_output_by_turn(
-            self.drone_armada.drones,
-            self._game_world.end_zone_name,
-            self._drone_navigation_context.movement_model,
+        self._simulation_output_by_turn = (
+            SimulationOutput.format_simulation_output_by_turn(
+                self.drone_armada.drones,
+                self._game_world.end_zone_name,
+                self._drone_navigation_context.movement_model,
+            )
         )
         self._simulation_output_emit_index = 0
 
