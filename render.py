@@ -126,6 +126,14 @@ class Renderer:
             offset_x=self.offset_x,
             offset_y=self.offset_y,
         )
+        if self._drone_navigation_context is not None:
+            self._drone_navigation_context = DroneNavigationContext(
+                layout=self._zone_layout,
+                movement_model=self._drone_navigation_context.movement_model,
+                reference_edge_pixels=(
+                    self._drone_navigation_context.reference_edge_pixels
+                ),
+            )
 
     def _build_zone_layout(self) -> None:
         """World-space pixel target per zone plus current render offsets."""
@@ -236,15 +244,20 @@ class Renderer:
         if self.paused:
             return
         turn_floor = int(self.drone_armada.planner_turn_time)
-        pending_lines = self._simulation_output_by_turn
-        emit_index = self._simulation_output_emit_index
         while (
-            emit_index < len(pending_lines)
-            and pending_lines[emit_index][0] <= turn_floor
+            self._simulation_output_emit_index
+            < len(self._simulation_output_by_turn)
+            and self._simulation_output_by_turn[
+                self._simulation_output_emit_index
+            ][0]
+            <= turn_floor
         ):
-            print(pending_lines[emit_index][1])
-            emit_index += 1
-        self._simulation_output_emit_index = emit_index
+            print(
+                self._simulation_output_by_turn[
+                    self._simulation_output_emit_index
+                ][1]
+            )
+            self._simulation_output_emit_index += 1
 
     def run(self) -> None:
         """Load assets, enter the event/render loop at 60 FPS until quit."""
@@ -259,7 +272,7 @@ class Renderer:
         self._spawn_armada()
         try:
             while self.running:
-                dt_seconds = self.clock.get_time() / 1000.0
+                dt_seconds = self.clock.tick(60) / 1000.0
                 self._handle_events()
                 self._handle_camera_keys(dt_seconds)
 
@@ -269,7 +282,6 @@ class Renderer:
                     layer.render(self.screen, context)
                 self._emit_due_simulation_lines()
                 pygame.display.flip()
-                self.clock.tick(60)
         except LayerRenderError as e:
             print(f"Render error: {e}")
             sys.exit(1)

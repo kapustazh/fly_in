@@ -24,12 +24,14 @@ def format_simulation_output(
     movement_model: ZoneMovementModel,
 ) -> list[str]:
     """Build VII.5 lines (timed plan if present, else zone-path expansion)."""
-    rows = format_simulation_output_by_turn(
-        drones,
-        end_zone,
-        movement_model,
-    )
-    return [line_text for planner_turn, line_text in rows]
+    return [
+        line_text
+        for _, line_text in format_simulation_output_by_turn(
+            drones,
+            end_zone,
+            movement_model,
+        )
+    ]
 
 
 def format_simulation_output_by_turn(
@@ -42,12 +44,11 @@ def format_simulation_output_by_turn(
 
     for drone_index, drone in enumerate(drones):
         label = f"D{drone_index + 1}"
-        timed_chain = drone.planned_timed_states
-        if timed_chain is not None:
+        if drone.planned_timed_states is not None:
             _collect_timed_chain(
                 turn_actions,
                 label,
-                timed_chain,
+                drone.planned_timed_states,
                 end_zone,
                 movement_model,
             )

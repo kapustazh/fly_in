@@ -8,7 +8,7 @@ from typing import Protocol
 
 from game import GameWorld
 from pathfinding import PlannedRoute, RoutePlanner
-from timed_pathfinding import TimedPathfinder, TurnOccupancyLedger
+from timed_pathfinding import TimedPathfinder, TurnCapacityTracker
 
 
 class FleetPlanningError(Exception):
@@ -33,7 +33,7 @@ class FleetPlanResult:
 
 
 class FleetRoutePlanner:
-    """Fleet routing with per-turn capacity (VII.2), not static overlap."""
+    """Fleet routing with per-turn capacity, not static overlap."""
 
     @staticmethod
     def _max_time_budget(game_world: GameWorld, num_drones: int) -> int:
@@ -49,9 +49,8 @@ class FleetRoutePlanner:
         *,
         capacity_exempt_hub_zone_names: frozenset[str],
     ) -> FleetPlanResult:
-        """Plan drones in order; reserve capacity on the shared ledger."""
-        movement = route_planner.movement_model
-        ledger = TurnOccupancyLedger(
+        """Plan drones in order; reserve capacity on the shared tracker."""
+        capacity_tracker = TurnCapacityTracker(
             game_world.zones,
             game_world.connections,
             exempt_zone_capacity=capacity_exempt_hub_zone_names,
@@ -62,10 +61,10 @@ class FleetRoutePlanner:
         for drone in drones:
             timed = TimedPathfinder.find(
                 game_world,
-                movement,
+                route_planner.movement_model,
                 drone.current_zone,
                 drone.end_zone,
-                ledger,
+                capacity_tracker,
                 max_time=max_time,
             )
             if timed is None:
@@ -74,7 +73,7 @@ class FleetRoutePlanner:
                     "relax capacities, or simplify the map."
                 )
             zone_path, timed_states = timed
-            ledger.reserve_timed_state_chain(timed_states)
+            capacity_tracker.reserve_timed_state_chain(timed_states)
             planned_routes.append(
                 PlannedRoute(
                     zone_names=list(zone_path),

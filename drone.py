@@ -16,13 +16,7 @@ SECONDS_PER_DISCRETE_TURN: float = 1.7
 
 @dataclass(frozen=True)
 class DroneNavigationContext:
-    """Read-only world helpers passed into Drone update and render logic.
-
-    layout maps zone names to pixel centers, and movement_model provides
-    per-zone movement weights used when updating cumulative simulation turns.
-    reference_edge_pixels is one axis-aligned grid step in pixels (tile width);
-    movement speed scales with actual edge length relative to that reference.
-    """
+    """Layout plus movement rules shared by drone simulation and rendering."""
 
     layout: ZoneLayout
     movement_model: ZoneMovementModel
@@ -63,13 +57,14 @@ class Drone:
     ) -> None:
         """Start following a path from the armada."""
         self.zone_path = planned_route.zone_names
-        timed_states_tuple = planned_route.timed_states
-        if timed_states_tuple is not None:
-            if len(timed_states_tuple) != len(self.zone_path):
+        if planned_route.timed_states is not None:
+            if len(planned_route.timed_states) != len(self.zone_path):
                 raise ValueError("timed_states and zone_path length mismatch")
-            self.planned_timed_states = list(timed_states_tuple)
-        else:
-            self.planned_timed_states = None
+        self.planned_timed_states = (
+            None
+            if planned_route.timed_states is None
+            else list(planned_route.timed_states)
+        )
         self.pixel_position = (
             navigation_context.layout.pixel_center_for_zone_name(
                 self.zone_path[0]
@@ -101,27 +96,28 @@ class Drone:
         Skips repeated current_zone entries (wait steps) using a local index so
         we do not mutate _next_zone_index. If arrived or no path, (0, 0).
         """
-        path = self.zone_path
-        if self._arrived or not path:
+        if self._arrived or not self.zone_path:
             return (0.0, 0.0)
         path_index = self._next_zone_index
-        while path_index < len(path) and path[path_index] == self.current_zone:
+        while (
+            path_index < len(self.zone_path)
+            and self.zone_path[path_index] == self.current_zone
+        ):
             path_index += 1
 
-        layout = navigation_context.layout
-        pixel_center = layout.pixel_center_for_zone_name
+        pixel_center = navigation_context.layout.pixel_center_for_zone_name
 
-        if path_index >= len(path):
-            if len(path) >= 2:
-                previous_center = pixel_center(path[-2])
-                last_center = pixel_center(path[-1])
+        if path_index >= len(self.zone_path):
+            if len(self.zone_path) >= 2:
+                previous_center = pixel_center(self.zone_path[-2])
+                last_center = pixel_center(self.zone_path[-1])
                 return (
                     last_center[0] - previous_center[0],
                     last_center[1] - previous_center[1],
                 )
             return (1.0, 0.0)
 
-        destination_center = pixel_center(path[path_index])
+        destination_center = pixel_center(self.zone_path[path_index])
         origin_center = pixel_center(self.current_zone)
         return (
             destination_center[0] - origin_center[0],
@@ -210,11 +206,10 @@ class Drone:
 
     def _can_start_timed_step(self, planner_turn_time: float) -> bool:
         """Gate simulation by planner turn when timed states are present."""
-        timed_states = self.planned_timed_states
-        if timed_states is None:
+        if self.planned_timed_states is None:
             return True
         step_index = self._next_zone_index
-        reserved_start_turn = timed_states[step_index - 1][1]
+        reserved_start_turn = self.planned_timed_states[step_index - 1][1]
         return planner_turn_time >= reserved_start_turn
 
     def _effective_move_speed(
@@ -224,7 +219,7 @@ class Drone:
         speed_px_per_sec: float,
         wait_at_node_sec: float,
     ) -> float:
-        """Blend length-based speed with timed-route minimum when applicable."""
+        """Blend length-based speed with timed-route minimum."""
         cur_x, cur_y = self.pixel_position
         gx, gy = goal_pixel
         distance = hypot(gx - cur_x, gy - cur_y)
@@ -237,12 +232,11 @@ class Drone:
         else:
             length_scaled_speed = speed_px_per_sec
 
-        timed_states = self.planned_timed_states
-        if timed_states is None:
+        if self.planned_timed_states is None:
             return length_scaled_speed
         step_index = self._next_zone_index
-        turn_at_arrival = timed_states[step_index][1]
-        turn_at_step_start = timed_states[step_index - 1][1]
+        turn_at_arrival = self.planned_timed_states[step_index][1]
+        turn_at_step_start = self.planned_timed_states[step_index - 1][1]
         turn_span = turn_at_arrival - turn_at_step_start
         if turn_span < 1:
             turn_span = 1
@@ -260,9 +254,10 @@ class Drone:
     ) -> None:
         """Apply simulation bookkeeping after reaching the next zone."""
         self.current_zone = next_zone_on_path
-        movement_model = navigation_context.movement_model
-        enter_turn_weight = movement_model.simulation_turn_weight(
-            next_zone_on_path
+        enter_turn_weight = (
+            navigation_context.movement_model.simulation_turn_weight(
+                next_zone_on_path
+            )
         )
         self.cumulative_simulation_turns += enter_turn_weight
         self._next_zone_index += 1

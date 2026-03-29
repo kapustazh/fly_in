@@ -65,7 +65,7 @@ class TimedGraph:
         return set(block.get("connections", set()))
 
 
-class TurnOccupancyLedger:
+class TurnCapacityTracker:
     """Sparse per-turn usage for zones (capacity) and undirected links."""
 
     def __init__(
@@ -190,7 +190,7 @@ class TimedPathfinder:
         movement: ZoneMovementModel,
         start_zone: str,
         end_zone: str,
-        ledger: TurnOccupancyLedger,
+        capacity_tracker: TurnCapacityTracker,
         *,
         max_time: int,
     ) -> tuple[list[str], list[tuple[str, int]]] | None:
@@ -224,8 +224,9 @@ class TimedPathfinder:
         goal_state: tuple[str, int] | None = None
 
         while open_heap:
-            popped = heapq.heappop(open_heap)
-            cumulative_cost, _priority_rank, zone_name, turn_index = popped
+            cumulative_cost, _priority_rank, zone_name, turn_index = (
+                heapq.heappop(open_heap)
+            )
             state = (zone_name, turn_index)
             if state not in best_cost_by_state:
                 continue
@@ -238,7 +239,7 @@ class TimedPathfinder:
             if turn_index + 1 <= max_time:
                 next_turn = turn_index + 1
                 wait_state = (zone_name, next_turn)
-                if ledger.can_occupy_zone_at(zone_name, turn_index):
+                if capacity_tracker.can_occupy_zone_at(zone_name, turn_index):
                     wait_cost = cumulative_cost + 1
                     if wait_cost < best_cost_by_state.get(wait_state, inf):
                         best_cost_by_state[wait_state] = wait_cost
@@ -265,7 +266,7 @@ class TimedPathfinder:
                 turn_at_arrival = turn_index + travel_turns
                 if turn_at_arrival > max_time:
                     continue
-                if not ledger.can_move(
+                if not capacity_tracker.can_move(
                     zone_name,
                     neighbor_zone,
                     turn_index,

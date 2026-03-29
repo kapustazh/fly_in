@@ -111,10 +111,6 @@ class DroneSprite(AnimatedSprite):
         then rotates from that bank's native heading toward screen_heading_deg
         (0 to 360).
         """
-        if not self.frames_left_down:
-            n = len(self.frames)
-            return self.frames[(current_time // animation) % n]
-
         tick = current_time // animation
         if hypot(dx, dy) < dead_zone:
             bank = self.frames_left_down

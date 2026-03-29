@@ -150,7 +150,7 @@ class MapLayer(RenderLayer):
         context: RenderContext,
     ) -> None:
         """Draw each zone link once as a sand line between tile centers."""
-        drawn: set[frozenset[str]] = set[frozenset[str]]()
+        drawn: set[frozenset[str]] = set()
         tile_w = context.assets.island.width
         half_w = context.assets.island.width // 2
         half_h = context.assets.island.height // 2
@@ -173,7 +173,7 @@ class MapLayer(RenderLayer):
                     == "blocked"
                 ):
                     continue
-                bridge = frozenset[str | Any]((name, neighbor))
+                bridge = frozenset((name, neighbor))
                 if bridge in drawn:
                     continue
 
@@ -289,16 +289,15 @@ class DronesLayer(RenderLayer):
             delta_seconds = (context.current_time - prev_ms) / 1000.0
         self.last_time_ms = context.current_time
 
-        drone_armada = context.drone_armada
         if not context.paused:
-            drone_armada.update_all(
+            context.drone_armada.update_all(
                 delta_seconds,
                 self.DRONE_SPEED_PX_PER_SEC,
                 self.WAIT_AT_NODE_SEC,
             )
 
         sprite = context.assets.drone_sprite
-        for drone in drone_armada.drones:
+        for drone in context.drone_armada.drones:
             movement_delta_x, movement_delta_y = (
                 drone.sprite_render_movement_delta(context.navigation_context)
             )
@@ -453,10 +452,8 @@ class HelpOverlayLayer(RenderLayer):
         )
         total_text_height = line_h * len(lines)
 
-        center_x = (context.width - max_text_width) // 2
-        x = center_x if center_x >= self.PADDING else self.PADDING
-        center_y = (context.height - total_text_height) // 2
-        y = center_y if center_y >= self.PADDING else self.PADDING
+        x = max((context.width - max_text_width) // 2, self.PADDING)
+        y = max((context.height - total_text_height) // 2, self.PADDING)
 
         for line in lines:
             if line == "":
@@ -610,7 +607,7 @@ class ZoneTooltipLayer(RenderLayer):
         max_drones = getattr(metadata, "max_drones", 1)
         color = getattr(metadata, "color", None)
         zone_conn = context.connections.get(name, {})
-        neighbors: set[str] = zone_conn.get("connections", set[Any]())
+        neighbors: set[str] = zone_conn.get("connections", set())
         conn_meta: dict[str, Any] = zone_conn.get("metadata", {})
 
         lines: list[str] = [
