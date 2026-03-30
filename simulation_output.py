@@ -1,4 +1,10 @@
-"""VII.5-style simulation line formatting (drone movement tokens per turn)."""
+"""Simulation line formatting (drone movement tokens per turn).
+
+Extension: for per-turn capacity text, build a dict[int, str] keyed by
+planner turn from GameWorld and planned_timed_states (same rules as
+TurnCapacityTracker), then print after each movement line in
+Renderer._print_turn_simulation_lines.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +27,6 @@ class SimulationOutput:
     end zone it is delivered and omitted from later lines. Output stops once
     every drone has reached the end zone. If a route has no timed chain, the
     formatter falls back to the zone path only.
-
     """
 
     def __init__(
@@ -55,6 +60,16 @@ class SimulationOutput:
             if actions:
                 rows.append((t, " ".join(actions)))
         return rows
+
+    @classmethod
+    def format_simulation_output_by_turn(
+        cls,
+        drones: list[Drone],
+        end_zone: str,
+        movement_model: ZoneMovementModel,
+    ) -> list[tuple[int, str]]:
+        """Planner turn index and one movement line per row."""
+        return cls(drones, end_zone, movement_model).lines_by_turn()
 
     def _append_timed_chain(
         self,
@@ -103,13 +118,3 @@ class SimulationOutput:
             turn0 += w
             if z1 == end:
                 break
-
-    @classmethod
-    def format_simulation_output_by_turn(
-        cls,
-        drones: list[Drone],
-        end_zone: str,
-        movement_model: ZoneMovementModel,
-    ) -> list[tuple[int, str]]:
-        """Planner turn index and one movement line per row."""
-        return cls(drones, end_zone, movement_model).lines_by_turn()

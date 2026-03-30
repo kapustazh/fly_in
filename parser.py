@@ -176,7 +176,7 @@ class InputParser:
             raise FileReaderError("File not found")
 
     def parse_input(self) -> None:
-        """Parse map file (VII.4).
+        """Parse map file.
 
         The first non-empty, non-comment line must be nb_drones: with a
         positive integer. Zone names may use any characters except ASCII

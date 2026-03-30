@@ -255,7 +255,11 @@ class Renderer:
             self._move_camera(camera_delta_x, camera_delta_y)
 
     def _print_turn_simulation_lines(self) -> None:
-        """Print simulation lines for turns up to the current planner clock."""
+        """Print simulation lines for turns up to the current planner clock.
+
+        Optional per-turn extras (e.g. capacity) can be printed here; see
+        simulation_output module docstring.
+        """
         if self.paused:
             return
         turn_floor = int(self.drone_armada.planner_turn_time)

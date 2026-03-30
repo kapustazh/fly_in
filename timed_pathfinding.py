@@ -4,8 +4,8 @@ Turn-based planning capacity is per turn, not per route name.
 Static overlap counts treat every shared zone as conflict; here, limits apply
 only when drones share a zone or link on the *same* turn.
 
-Routes use ``TimedPathfinder`` and ``FleetRoutePlanner``; per-zone costs use
-``routing_costs.ZoneMovementModel``.
+Routes use TimedPathfinder and FleetRoutePlanner; per-zone costs use
+routing_costs.ZoneMovementModel.
 """
 
 from __future__ import annotations

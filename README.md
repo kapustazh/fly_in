@@ -10,7 +10,7 @@
 - **Per-zone occupancy** — `max_drones` caps how many drones may occupy a zone at the same simulation turn.
 - **Per-connection throughput** — `max_link_capacity` caps how many drones may use a link per turn.
 
-The implementation has three main parts: **parsing and validation** of map files into a `GameWorld`, **capacity-aware multi-drone planning** over discrete turns (timed search with reservations), and a **layered visual simulation** so you can watch routes unfold and inspect bottlenecks. The same planner drives **textual per-turn output** (VII.5-style lines) printed to the console as the simulation clock advances.
+The implementation has three main parts: **parsing and validation** of map files into a `GameWorld`, **capacity-aware multi-drone planning** over discrete turns (timed search with reservations), and a **layered visual simulation** so you can watch routes unfold and inspect bottlenecks. The same planner drives **textual per-turn output** printed to the console as the simulation clock advances.
 
 ---
 
@@ -24,10 +24,10 @@ The implementation has three main parts: **parsing and validation** of map files
 ### Installation
 
 ```bash
-uv sync --python 3.11
+make install
 ```
 
-Or: `make install` (same command).
+Or: `uv sync --python 3.11` (same command).
 
 ### Run
 

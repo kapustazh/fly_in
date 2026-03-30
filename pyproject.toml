@@ -30,7 +30,6 @@ py-modules = [
     "parser",
     "render",
     "routing_costs",
-    "simulation_extras",
     "simulation_output",
     "sprites",
     "timed_pathfinding",
