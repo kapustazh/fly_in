@@ -1,20 +1,42 @@
-"""Turn-based planning capacity is per turn, not per route name.
+"""Timed routing: shared types, space–time search, and per-turn capacity.
 
+Turn-based planning capacity is per turn, not per route name.
 Static overlap counts treat every shared zone as conflict; here, limits apply
 only when drones share a zone or link on the *same* turn.
+
+Routes use ``TimedPathfinder`` and ``FleetRoutePlanner``; per-zone costs use
+``routing_costs.ZoneMovementModel``.
 """
 
 from __future__ import annotations
 
 import heapq
+from dataclasses import dataclass
 from math import inf
 from typing import Any
 
 from collections.abc import Mapping
 
 from game import GameWorld
-from pathfinding import PathfindingError
 from routing_costs import RoutingCostsError, ZoneMovementModel
+
+
+class PathfindingError(Exception):
+    """Raised when timed search cannot connect zones or hits invalid state."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"Pathfinding error: {detail}")
+
+
+@dataclass(frozen=True)
+class PlannedRoute:
+    """Zone sequence for a drone; optional timed (zone, turn) chain.
+
+    timed_states is None when the planner did not produce a timed path.
+    """
+
+    zone_names: list[str]
+    timed_states: tuple[tuple[str, int], ...] | None = None
 
 
 class TimedGraph:
@@ -34,8 +56,6 @@ class TimedGraph:
         if meta is None:
             return 1
         capacity = getattr(meta, "max_link_capacity", 1)
-        if capacity < 1:
-            return 1
         return capacity
 
     @staticmethod
@@ -50,8 +70,6 @@ class TimedGraph:
         if meta is None:
             return 1
         limit = getattr(meta, "max_drones", 1)
-        if limit < 1:
-            return 1
         return limit
 
     @staticmethod
@@ -190,7 +208,8 @@ class TimedPathfinder:
     ) -> tuple[list[str], list[tuple[str, int]]] | None:
         """Minimum-cost timed path, or None past *max_time*.
 
-        Returns zone sequence and (zone, time) states for reservations.
+        The heap mostly sorts by “total turns spent so far” (cheapest first).
+
         """
         zones = game_world.zones
         connections = game_world.connections

@@ -21,7 +21,7 @@ class RoutingCostsError(Exception):
 class ZoneMovementModel:
     """Read-only view of zone types for routing.
 
-    Sets enter cost, passability, and A* tie-break priority from metadata.
+    Sets enter cost, passability, and Dijkstra tie-break priority from metadata
     """
 
     def __init__(self, zones: Mapping[str, dict[str, Any]]) -> None:

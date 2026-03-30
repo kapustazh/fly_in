@@ -4,7 +4,7 @@ from parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
 import os
-from typing import Any
+from typing import Any, cast
 from collections.abc import Mapping
 from assets import AssetManager, AssetError
 from layers import (
@@ -22,8 +22,8 @@ from layers import (
 )
 from game import GameWorld, GameWorldError
 from map_layout import ZoneLayout
-from pathfinding import RoutePlanner
 from fleet_planner import FleetPlanningError
+from routing_costs import ZoneMovementModel
 from drone import DroneArmada, DroneNavigationContext
 from simulation_output import SimulationOutput
 
@@ -172,10 +172,10 @@ class Renderer:
 
     def _spawn_armada(self) -> None:
         """Plan timed fleet routes and spawn drones."""
-        route_planner = RoutePlanner(self._game_world)
+        movement_model = ZoneMovementModel(self._game_world.zones)
         self._drone_navigation_context = DroneNavigationContext(
             layout=self._zone_layout,
-            movement_model=route_planner.movement_model,
+            movement_model=movement_model,
             reference_bridge_pixels=self.assets.island.width,
         )
         self.drone_armada = DroneArmada()
@@ -185,7 +185,10 @@ class Renderer:
             navigation_context=self._drone_navigation_context,
         )
         try:
-            self.drone_armada.launch_armada(self._game_world, route_planner)
+            self.drone_armada.launch_armada(
+                self._game_world,
+                movement_model,
+            )
         except FleetPlanningError as e:
             print(e)
             pygame.quit()
@@ -208,10 +211,11 @@ class Renderer:
         self._spawn_armada()
 
     def _handle_events(self) -> None:
-        """Handle discrete events (quit/restart) and keep cursor position fresh.
+        """Handle discrete events (quit/restart) and refresh cursor position.
 
-        SDL can lag or mis-report pygame.mouse.get_pos() on some platforms until
-        events are processed; MOUSEMOTION carries authoritative window coordinates.
+        SDL can lag or mis-report pygame.mouse.get_pos() on some platforms
+        until events are processed; MOUSEMOTION carries authoritative window
+        coordinates.
         """
         moved = False
         for event in pygame.event.get():
@@ -263,11 +267,10 @@ class Renderer:
             ][0]
             <= turn_floor
         ):
-            print(
-                self._simulation_output_by_turn[
-                    self._simulation_output_turn_index
-                ][1]
-            )
+            _, line = self._simulation_output_by_turn[
+                self._simulation_output_turn_index
+            ]
+            print(line)
             self._simulation_output_turn_index += 1
 
     def run(self) -> None:
@@ -311,8 +314,8 @@ class InformationManager:
         self._num_drones: int = 0
 
     @property
-    def _get_filepath(self) -> Any:
-        """Path argument from argparse (first positional)."""
+    def filepath(self) -> str:
+        """Map file path from the CLI first positional argument."""
         parser = argparse.ArgumentParser(
             prog="fly-in",
             description=(
@@ -325,20 +328,20 @@ class InformationManager:
             help="Path to the .txt file with the data",
         )
         args = parser.parse_args()
-        return args.filepath
+        return cast(str, args.filepath)
 
     def parse_input(self) -> None:
         """Parse the map file into zones, connections, and drone count."""
         try:
             map_parser = InputParser()
-            map_parser.parse_lines(self._get_filepath)
+            map_parser.parse_lines(self.filepath)
             map_parser.parse_input()
             if not map_parser.get_zones:
                 raise ParsingError("No zones provided")
             self._zones = map_parser.get_zones
             self._connections = map_parser.connections
             self._num_drones = map_parser.number_of_drones
-        except (FileReaderError, ParsingError, Exception) as e:
+        except (FileReaderError, ParsingError, OSError) as e:
             print(e)
             sys.exit(1)
 

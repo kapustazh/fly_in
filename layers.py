@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 from collections.abc import Mapping
 import pygame
@@ -24,9 +24,11 @@ from pygame.surface import Surface
 
 # :D
 class Colors(Enum):
-    """Named colors shared by map drawing (e.g. bridge lines)."""
+    """Named colors shared by map drawing, tooltips, and bridge lines."""
 
     SAND_COLOR = (194, 178, 128)
+    TOOLTIP_BG_COLOR = (40, 32, 24)
+    TOOLTIP_BORDER_COLOR = (220, 190, 120)
 
 
 class LayerRenderError(Exception):
@@ -276,7 +278,7 @@ class FlagsLayer(RenderLayer):
 class DronesLayer(RenderLayer):
     """Advances drone simulation each frame and draws each drone sprite."""
 
-    DRONE_SPEED_PX_PER_SEC = 180
+    DRONE_SPEED_PX_PER_SEC = 220
     WAIT_AT_NODE_SEC = SECONDS_PER_DISCRETE_TURN
     DRONE_BLIT_ANCHOR_DOWN_PX = 0
     DRONE_DRAW_OFFSET_X = 0
@@ -302,7 +304,7 @@ class DronesLayer(RenderLayer):
             context.drone_armada.update_all(
                 delta_seconds,
                 self.DRONE_SPEED_PX_PER_SEC,
-                self.WAIT_AT_NODE_SEC,
+                self.WAIT_AT_NODE_SEC - 0.1,
             )
 
         sprite = context.assets.drone_sprite
@@ -576,13 +578,12 @@ class ZoneTooltipLayer(RenderLayer):
 
     PADDING: int = 8
     LINE_SPACING: int = 4
-    BG_COLOR: tuple[int, int, int] = (40, 32, 24)
-    BORDER_COLOR: tuple[int, int, int] = (220, 190, 120)
     CURSOR_OFFSET: int = 12
 
     def _get_hovered_zone(
         self,
         context: RenderContext,
+        mouse_xy: tuple[int, int],
     ) -> tuple[str, dict[str, Any]] | None:
         """Return the (name, zone) pair the mouse is currently over.
 
@@ -593,7 +594,7 @@ class ZoneTooltipLayer(RenderLayer):
         """
         tile_w = context.assets.island.width
         tile_h = context.assets.island.height
-        mx, my = context.mouse_position
+        mx, my = mouse_xy
         ox, oy = context.layout.offset_x, context.layout.offset_y
 
         lx = mx - ox
@@ -689,9 +690,10 @@ class ZoneTooltipLayer(RenderLayer):
         context: RenderContext,
         box_w: int,
         box_h: int,
+        mouse_xy: tuple[int, int],
     ) -> tuple[int, int]:
         """Place the box near the cursor, clamped so it stays on-screen."""
-        mx, my = context.mouse_position
+        mx, my = mouse_xy
         margin = 4
         bx = mx + self.CURSOR_OFFSET
         by = my + self.CURSOR_OFFSET
@@ -720,21 +722,26 @@ class ZoneTooltipLayer(RenderLayer):
     def render(self, screen: Surface, context: RenderContext) -> None:
         """Render a tooltip with all zone info when hovering over a tile."""
         # Fresh SDL read at draw time (some backends lag behind RenderContext).
-        mx, my = pygame.mouse.get_pos()
-        context = replace(context, mouse_position=(int(mx), int(my)))
+        pos = pygame.mouse.get_pos()
+        mouse_xy = (int(pos[0]), int(pos[1]))
 
-        hovered = self._get_hovered_zone(context)
+        hovered = self._get_hovered_zone(context, mouse_xy)
         if hovered is None:
             return
 
         name, zone = hovered
         lines = self._build_lines(name, zone, context)
         char_h, box_w, box_h = self._get_box_size(lines, context)
-        bx, by = self._get_box_position(context, box_w, box_h)
+        bx, by = self._get_box_position(context, box_w, box_h, mouse_xy)
 
         bg = pygame.Surface((box_w, box_h))
-        bg.fill(self.BG_COLOR)
+        bg.fill(Colors.TOOLTIP_BG_COLOR.value)
         screen.blit(bg, (bx, by))
-        pygame.draw.rect(screen, self.BORDER_COLOR, (bx, by, box_w, box_h), 2)
+        pygame.draw.rect(
+            screen,
+            Colors.TOOLTIP_BORDER_COLOR.value,
+            (bx, by, box_w, box_h),
+            2,
+        )
 
         self._render_lines(screen, context, lines, bx, by, char_h)

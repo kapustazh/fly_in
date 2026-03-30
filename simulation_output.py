@@ -1,4 +1,4 @@
-"""VII.5-style simulation line formatting."""
+"""VII.5-style simulation line formatting (drone movement tokens per turn)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,9 @@ class SimulationOutput:
 
     Drones that do not move on a turn are omitted. After a drone reaches the
     end zone it is delivered and omitted from later lines. Output stops once
-    every drone has reached the end zone.
+    every drone has reached the end zone. If a route has no timed chain, the
+    formatter falls back to the zone path only.
+
     """
 
     def __init__(
@@ -109,5 +111,5 @@ class SimulationOutput:
         end_zone: str,
         movement_model: ZoneMovementModel,
     ) -> list[tuple[int, str]]:
-        """Keep planner turn index per line."""
+        """Planner turn index and one movement line per row."""
         return cls(drones, end_zone, movement_model).lines_by_turn()

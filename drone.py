@@ -8,7 +8,7 @@ from math import hypot
 
 from game import GameWorld
 from map_layout import ZoneLayout
-from pathfinding import PlannedRoute, RoutePlanner
+from timed_pathfinding import PlannedRoute
 from routing_costs import ZoneMovementModel
 
 SECONDS_PER_DISCRETE_TURN: float = 1.7
@@ -345,7 +345,9 @@ class DroneArmada:
             )
 
     def launch_armada(
-        self, game_world: GameWorld, route_planner: RoutePlanner
+        self,
+        game_world: GameWorld,
+        movement_model: ZoneMovementModel,
     ) -> None:
         """Assign timed fleet routes and mark the armada launched."""
         from fleet_planner import FleetRoutePlanner
@@ -356,14 +358,14 @@ class DroneArmada:
                 game_world.end_zone_name,
             }
         )
-        result = FleetRoutePlanner.plan_all_drones(
-            route_planner,
+        routes = FleetRoutePlanner.plan_all_drones(
+            movement_model,
             game_world,
             self.drones,
             capacity_exempt_hub_zone_names=capacity_exempt_hub_zone_names,
         )
 
-        for drone, planned_route in zip(self.drones, result.routes):
+        for drone, planned_route in zip(self.drones, routes):
             drone.apply_planned_route(
                 self._navigation_context,
                 planned_route,

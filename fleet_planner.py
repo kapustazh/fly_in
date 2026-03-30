@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from drone import Drone
 from game import GameWorld
-from pathfinding import PlannedRoute, RoutePlanner
-from timed_pathfinding import TimedPathfinder, TurnCapacityTracker
+from routing_costs import ZoneMovementModel
+from timed_pathfinding import (
+    PlannedRoute,
+    TimedPathfinder,
+    TurnCapacityTracker,
+)
 
 
 class FleetPlanningError(Exception):
@@ -14,13 +17,6 @@ class FleetPlanningError(Exception):
 
     def __init__(self, detail: str) -> None:
         super().__init__(f"Fleet planning error: {detail}")
-
-
-@dataclass(frozen=True)
-class FleetPlanResult:
-    """Outcome of fleet-level routing."""
-
-    routes: list[PlannedRoute]
 
 
 class FleetRoutePlanner:
@@ -34,12 +30,12 @@ class FleetRoutePlanner:
 
     @staticmethod
     def plan_all_drones(
-        route_planner: RoutePlanner,
+        movement_model: ZoneMovementModel,
         game_world: GameWorld,
         drones: list[Drone],
         *,
         capacity_exempt_hub_zone_names: frozenset[str],
-    ) -> FleetPlanResult:
+    ) -> list[PlannedRoute]:
         """Plan drones in order; reserve capacity on the shared tracker."""
         capacity_tracker = TurnCapacityTracker(
             game_world.zones,
@@ -52,7 +48,7 @@ class FleetRoutePlanner:
         for drone in drones:
             timed = TimedPathfinder.find(
                 game_world,
-                route_planner.movement_model,
+                movement_model,
                 drone.current_zone,
                 drone.end_zone,
                 capacity_tracker,
@@ -72,4 +68,4 @@ class FleetRoutePlanner:
                 )
             )
 
-        return FleetPlanResult(routes=planned_routes)
+        return planned_routes

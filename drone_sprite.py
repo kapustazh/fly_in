@@ -69,17 +69,6 @@ class DroneSprite(AnimatedSprite):
             return "left_down"
         return "right_down" if dx >= 0.0 else "left_down"
 
-    @staticmethod
-    def bank_key_for_velocity(
-        dx: float, dy: float, dead_zone: float = 1.5
-    ) -> str:
-        """idle, or which bank is closest to motion (
-        convenience; calls screen_heading once)."""
-        if hypot(dx, dy) < dead_zone:
-            return "idle"
-        h = DroneSprite.screen_heading_deg(dx, dy)
-        return DroneSprite.bank_key_from_heading(h, dx)
-
     def prepare_frames(self, scale: float = 1.0) -> None:
         """Cut the sheet into 16 squares and resize them."""
         fw = self.width // self.COLS

@@ -65,21 +65,21 @@ make run ARGS=maps/easy/01_linear_path.txt
 
 ## Algorithm explanation
 
-### Base routing — A*
+### Movement costs (`ZoneMovementModel`)
 
-`RoutePlanner` runs **A\*** on the zone graph: nodes are zone names, **bridges** are connections between zones, `g(n)` accumulates **enter cost** from zone types via `ZoneMovementModel`, and `h(n)` is **Euclidean distance** on grid coordinates. When `f` scores tie, **priority** zones are preferred.
+Per-zone **enter cost**, **passability**, and **priority** (for tie-breaking in search) come from parsed metadata. The renderer and planner share one `ZoneMovementModel` built from the map’s zones.
 
 ### Why timed (space–time) search
 
-A shortest path per drone ignores **when** each bridge is used. Conflicts appear in **time**: too many drones in one zone or on one link in the same turn. Capacity limits are **temporal**, so the planner must reason in **(zone, turn)** space, not only topology.
+A topology-only shortest path ignores **when** each bridge is used. Conflicts appear in **time**: too many drones in one zone or on one link in the same turn. Capacity limits are **temporal**, so the planner reasons in **(zone, turn)** space, not only the static graph.
 
 ### Timed pathfinding
 
-`TimedPathfinder` searches states `(zone, turn)`. From a state it can **wait** (advance time in place) or **move** along a **bridge** to a neighbor zone, spending turns according to destination zone weight (`simulation_turn_weight`). Each expansion checks **TurnCapacityTracker**: zone occupancy and link usage for the turns the move spans. Infeasible expansions are skipped. The tracker uses a priority heap with `f = g + h` consistent with the spatial model.
+`TimedPathfinder` searches states `(zone, turn)`. From a state it can **wait** (advance time in place) or **move** along a **bridge** to a neighbor zone, spending turns according to destination zone weight (`simulation_turn_weight`). Each expansion checks **TurnCapacityTracker**: zone occupancy and link usage for the turns the move spans. Infeasible expansions are skipped. The search is **Dijkstra-style** on the space–time graph: a min-heap ordered by **cumulative simulation turns** (`g`), with **priority zones** as a tie-break when costs tie.
 
 ### Fleet strategy
 
-`FleetRoutePlanner` plans drones **one after another** on a **shared** capacity tracker. Each drone gets a feasible timed path; its usage is **reserved** before the next drone is planned. Start and end hubs are usually exempt from occupancy caps so traffic can clear. This sequential reservation is deterministic and matches the “first planned, first reserved” interpretation of shared infrastructure.
+`FleetRoutePlanner` takes a shared **`ZoneMovementModel`** (not a separate static router). It plans drones **one after another** on a **shared** capacity tracker: each drone gets a feasible timed path, and usage is **reserved** before the next drone is planned. Start and end hubs are usually exempt from occupancy caps so traffic can clear. This sequential reservation is deterministic and matches the “first planned, first reserved” interpretation of shared infrastructure.
 
 ### Simulation output
 
@@ -87,8 +87,7 @@ A shortest path per drone ignores **when** each bridge is used. Conflicts appear
 
 ### Complexity (informal)
 
-- Static A*: on the order of `(V + B) log V` for the graph (`V` zones, `B` bridges).
-- Timed search: state space grows with time horizon `T`; cost grows roughly with the product of graph size and `T`.
+- Timed search: state space grows with time horizon `T`; work grows roughly with the product of graph size and `T` (priority-guided exploration).
 - Fleet: timed search runs once per drone with increasing reservation pressure.
 
 ---
@@ -166,8 +165,7 @@ Each line is one **simulation turn** with movement: listed drones are those that
 | `parser.py` | Map file parsing and validation |
 | `game.py` | `GameWorld` (zones, connections, start/end) |
 | `routing_costs.py` | Zone costs and passability |
-| `pathfinding.py` | A* `RoutePlanner` |
-| `timed_pathfinding.py` | Timed search and `TurnCapacityTracker` |
+| `timed_pathfinding.py` | `PlannedRoute`, `PathfindingError`, timed search, caps |
 | `fleet_planner.py` | Multi-drone sequential planning |
 | `drone.py` | Route execution and simulation time |
 | `simulation_output.py` | Per-turn line formatter |
@@ -177,12 +175,31 @@ Each line is one **simulation turn** with movement: listed drones are those that
 
 ## Resources
 
-- [Pygame documentation](https://www.pygame.org/docs/)
-- [Python `heapq`](https://docs.python.org/3/library/heapq.html)
-- [A* search — Wikipedia](https://en.wikipedia.org/wiki/A*_search_algorithm)
-- [Space-time A* concepts](https://w9-pathfinding.readthedocs.io/stable/mapf/SpaceTimeAStar.html)
-- [Silver 2005 — Cooperative Pathfinding (AAAI)](https://www.aaai.org/Papers/AAAI/2005/AAAI05-094.pdf)
+**Runtime and tooling**
+
+- [uv](https://docs.astral.sh/uv/) — fast Python installs and `uv run` / `uv sync` workflows
+- [Pygame documentation](https://www.pygame.org/docs/) — surfaces, events, and the drawing model (this project uses **pygame-ce** via `pyproject.toml`)
+
+**Algorithms and data structures**
+
+- [Python `heapq`](https://docs.python.org/3/library/heapq.html) — priority-queue interface used by timed search
+- [Dijkstra’s algorithm](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm) — same “expand cheapest known partial path” idea as the `(zone, turn)` search with nonnegative edge costs
+- [Space-time A* / MAPF background](https://w9-pathfinding.readthedocs.io/stable/mapf/SpaceTimeAStar.html) — intuition for planning in **(position, time)** when conflicts are turn-based (related reading; this codebase uses Dijkstra on space–time states, not A* with a heuristic)
+
+**Multi-agent routing**
+
+- [Silver 2005 — Cooperative Pathfinding (AAAI)](https://www.aaai.org/Papers/AAAI/2005/AAAI05-094.pdf) — classic framing of coupled and decoupled approaches; this project’s **sequential planning + reservations** is a simple decoupled strategy
+
+**Python quality**
+
+- [mypy](https://mypy.readthedocs.io/en/stable/) — static typing; `make lint` / `make lint-strict` help keep refactors honest
 
 ### How AI was used
 
-AI assistants were used for drafting and structuring documentation (including this README), diagrams, and wording; technical claims were checked against the source modules.
+AI coding assistants (e.g. in Cursor) were used **throughout development**, not only for prose. They helped **a lot** with:
+
+- **Debugging** — tracing failures (planner, capacity, simulation clock, rendering), comparing expected vs actual behavior, and narrowing down likely causes before manual verification in code.
+- **Refactoring** — splitting modules, aligning types and APIs, tightening lint/mypy, and keeping changes small and reviewable.
+- **Suggestions** — alternative designs, edge cases, and naming/structure options; the author **reviewed and tested** everything and kept **technical claims aligned with the real implementation** (see source files for ground truth).
+
+They were also used for **drafting and structuring** this README, **wording**, and **light diagram ideas**. AI output was treated as **assistance**, not authority: final decisions, correctness, and style remain the author’s.
