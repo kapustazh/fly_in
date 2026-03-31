@@ -274,6 +274,3 @@ The visual layer makes routing behavior inspectable, not merely cosmetic.
 - [A* search algorithm — Wikipedia](https://en.wikipedia.org/wiki/A*_search_algorithm)
 - [Space-time A* concepts](https://w9-pathfinding.readthedocs.io/stable/mapf/SpaceTimeAStar.html)
 - [Silver 2005 — Cooperative Pathfinding (AAAI)](https://www.aaai.org/Papers/AAAI/2005/AAAI05-094.pdf)
-
-### How AI was used
-
