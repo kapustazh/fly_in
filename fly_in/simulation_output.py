@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from drone import Drone
-from routing_costs import ZoneMovementModel
+from .drone import Drone
+from .routing_costs import ZoneMovementModel
 
 
 class SimulationOutput:

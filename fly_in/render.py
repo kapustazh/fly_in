@@ -1,13 +1,13 @@
 """Pygame loop: load assets, build world, run layered rendering."""
 
-from parser import InputParser, FileReaderError, ParsingError
+from .parser import InputParser, FileReaderError, ParsingError
 import argparse
 import sys
 import os
 from typing import Any, cast
 from collections.abc import Mapping
-from assets import AssetManager, AssetError
-from layers import (
+from .assets import AssetManager, AssetError
+from .layers import (
     RenderContext,
     RenderLayer,
     WaterLayer,
@@ -20,12 +20,12 @@ from layers import (
     ZoneTooltipLayer,
     HelpOverlayLayer,
 )
-from game import GameWorld, GameWorldError
-from map_layout import ZoneLayout
-from fleet_planner import FleetPlanningError
-from routing_costs import ZoneMovementModel
-from drone import DroneArmada, DroneNavigationContext
-from simulation_output import SimulationOutput
+from .game import GameWorld, GameWorldError
+from .map_layout import ZoneLayout
+from .fleet_planner import FleetPlanningError
+from .routing_costs import ZoneMovementModel
+from .drone import DroneArmada, DroneNavigationContext
+from .simulation_output import SimulationOutput
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 from pygame.surface import Surface  # noqa: E402

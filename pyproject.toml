@@ -11,6 +11,10 @@ dependencies = [
     "black>=26.1.0",
     "pygame-ce>=2.5.6",
 ]
+
+[project.scripts]
+fly-in = "fly_in.__main__:main"
+
 [project.optional-dependencies]
 dev = [
     "flake8>=7",
@@ -18,22 +22,7 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = [
-    "assets",
-    "drone",
-    "drone_sprite",
-    "fleet_planner",
-    "game",
-    "layers",
-    "main",
-    "map_layout",
-    "parser",
-    "render",
-    "routing_costs",
-    "simulation_output",
-    "sprites",
-    "timed_pathfinding",
-]
+packages = ["fly_in"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from drone import Drone
-from game import GameWorld
-from routing_costs import ZoneMovementModel
-from timed_pathfinding import (
+from fly_in.drone import Drone
+from fly_in.game import GameWorld
+from fly_in.routing_costs import ZoneMovementModel
+from fly_in.timed_pathfinding import (
     PlannedRoute,
     TimedPathfinder,
     TurnCapacityTracker,

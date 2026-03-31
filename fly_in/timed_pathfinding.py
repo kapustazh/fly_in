@@ -17,8 +17,8 @@ from typing import Any
 
 from collections.abc import Mapping
 
-from game import GameWorld
-from routing_costs import RoutingCostsError, ZoneMovementModel
+from .game import GameWorld
+from .routing_costs import RoutingCostsError, ZoneMovementModel
 
 
 class PathfindingError(Exception):

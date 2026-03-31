@@ -8,7 +8,7 @@ from typing import Any
 
 from collections.abc import Mapping
 
-from parser import ZoneTypes
+from .parser import ZoneTypes
 
 
 class RoutingCostsError(Exception):

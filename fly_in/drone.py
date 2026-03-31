@@ -6,10 +6,10 @@ from dataclasses import dataclass
 import math
 from math import hypot
 
-from game import GameWorld
-from map_layout import ZoneLayout
-from timed_pathfinding import PlannedRoute
-from routing_costs import ZoneMovementModel
+from fly_in.game import GameWorld
+from fly_in.map_layout import ZoneLayout
+from fly_in.timed_pathfinding import PlannedRoute
+from fly_in.routing_costs import ZoneMovementModel
 
 SECONDS_PER_DISCRETE_TURN: float = 1.7
 
@@ -350,7 +350,7 @@ class DroneArmada:
         movement_model: ZoneMovementModel,
     ) -> None:
         """Assign timed fleet routes and mark the armada launched."""
-        from fleet_planner import FleetRoutePlanner
+        from fly_in.fleet_planner import FleetRoutePlanner
 
         capacity_exempt_hub_zone_names = frozenset(
             {

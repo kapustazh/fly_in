@@ -8,17 +8,17 @@ from dataclasses import dataclass
 from typing import Any
 from collections.abc import Mapping
 import pygame
-from assets import AssetManager
+from fly_in.assets import AssetManager
 from enum import Enum
-from parser import ZoneTypes
+from fly_in.parser import ZoneTypes
 
-from drone import (
+from fly_in.drone import (
     DroneArmada,
     DroneNavigationContext,
     SECONDS_PER_DISCRETE_TURN,
 )
-from sprites import AnimatedSprite
-from map_layout import ZoneLayout
+from fly_in.sprites import AnimatedSprite
+from fly_in.map_layout import ZoneLayout
 from pygame.surface import Surface
 
 

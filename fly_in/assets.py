@@ -3,8 +3,8 @@ Load and prepare pygame images: water, map tiles, fonts, and the drone
 atlas.
 """
 
-from sprites import Sprite, AnimatedSprite, Font
-from drone_sprite import DroneSprite
+from fly_in.sprites import Sprite, AnimatedSprite, Font
+from fly_in.drone_sprite import DroneSprite
 from pathlib import Path
 import os
 
@@ -38,7 +38,7 @@ class AssetManager:
 
     def load(self) -> None:
         """Load images from the assets/ directory and run _prepare_sprites."""
-        assets_root = Path(__file__).parent / "assets"
+        assets_root = Path(__file__).resolve().parent.parent / "assets"
 
         def load_image(*parts: str) -> Surface:
             return pygame.image.load(

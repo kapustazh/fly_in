@@ -11,7 +11,7 @@ from math import hypot
 
 from pygame.surface import Surface
 
-from sprites import AnimatedSprite
+from fly_in.sprites import AnimatedSprite
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame  # noqa: E402
